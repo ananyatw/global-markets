@@ -1,0 +1,12 @@
+{
+  "name": "global-markets",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node serve.mjs",
+    "serve": "node serve.mjs"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}

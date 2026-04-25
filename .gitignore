@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+.env
+.env.*
+*.log
+
+# Product / office docs (binary; keep repo source-only)
+*.docx
