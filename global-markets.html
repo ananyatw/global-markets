@@ -259,40 +259,6 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
 
-  /* ── API Key overlay ── */
-  #api-overlay {
-    position: fixed; inset: 0; background: rgba(7,8,15,0.96);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 1000; backdrop-filter: blur(4px);
-  }
-  .api-modal {
-    background: var(--bg2); border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 14px; padding: 32px 36px; max-width: 460px; width: 90%;
-  }
-  .api-modal h2 { font-family: var(--mono); font-size: 16px; color: var(--green); margin-bottom: 8px; }
-  .api-modal p { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 20px; }
-  .api-modal a { color: var(--blue); }
-  .api-input-row { display: flex; gap: 10px; }
-  .api-modal input {
-    flex: 1; background: var(--bg3); border: 1px solid var(--border);
-    border-radius: 7px; padding: 10px 14px; color: var(--text);
-    font-family: var(--mono); font-size: 12px; outline: none;
-    transition: border-color 0.2s;
-  }
-  .api-modal input:focus { border-color: var(--green); }
-  .api-modal button {
-    background: var(--green); color: #07080f;
-    border: none; border-radius: 7px; padding: 10px 20px;
-    font-family: var(--mono); font-size: 12px; font-weight: 700;
-    cursor: pointer; white-space: nowrap;
-  }
-  .api-modal button:hover { opacity: 0.85; }
-  .skip-btn {
-    display: block; margin-top: 14px; font-size: 12px;
-    color: var(--faint); cursor: pointer; text-align: center;
-    background: none; border: none; width: 100%;
-  }
-  .skip-btn:hover { color: var(--muted); }
   .api-note { font-size: 11px; color: var(--faint); margin-top: 12px; line-height: 1.5; }
 
   /* ── News panel ── */
@@ -443,28 +409,6 @@
 </style>
 </head>
 <body>
-
-<!-- API Key Setup -->
-<div id="api-overlay">
-  <div class="api-modal">
-    <h2>// CONNECT LIVE DATA</h2>
-    <p>
-      This app uses <strong>Twelve Data</strong> for quotes (ETF proxies on the free tier work best).
-      Get a free API key at <a href="https://twelvedata.com/pricing" target="_blank">twelvedata.com</a>
-      — the free tier includes 800 requests/day, plenty for this dashboard.
-      With a <strong>paid</strong> plan you can switch on <em>index symbols</em> in the nav bar for real index levels.
-    </p>
-    <div class="api-input-row">
-      <input type="text" id="api-key-input" placeholder="Paste your API key here..." />
-      <button onclick="saveKey()">Connect</button>
-    </div>
-    <button class="skip-btn" onclick="useDemoData()">Use demo data instead →</button>
-    <p class="api-note">
-      Your key is stored only in localStorage on this device — never sent anywhere except Twelve Data's API.
-      For News and Learn (OpenRouter), run <code style="font-family:var(--mono);font-size:10px">npm start</code> and open the local URL so requests go through the bundled dev proxy.
-    </p>
-  </div>
-</div>
 
 <div class="app">
   <!-- Navbar -->
@@ -645,24 +589,6 @@ function useIndexMode() {
 function quoteSym(m) {
   return useIndexMode() && m.indexSymbol ? m.indexSymbol : m.symbol;
 }
-
-// Twelve Data symbols (maps to MARKET ids)
-// Using ETF proxies since Twelve Data free tier covers US ETFs well
-const TwelveData = {
-  BASE_URL: 'https://api.twelvedata.com',
-  key: '',
-
-  async getQuotes(symbols) {
-    if (!this.key) return null;
-    const joined = symbols.join(',');
-    const url = `${this.BASE_URL}/quote?symbol=${joined}&apikey=${this.key}`;
-    try {
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      return await res.json();
-    } catch(e) { return null; }
-  }
-};
 
 // Demo data fallback (realistic values)
 const DEMO = {
@@ -1518,30 +1444,25 @@ function updateClock() {
 // DATA FETCHING
 // ─────────────────────────────────────────
 async function fetchQuotes() {
-  if (isDemoMode) {
-    quoteData = DEMO;
-    setApiStatus('demo');
-    return;
-  }
-
   const symbols = MARKETS.map((m) => quoteSym(m));
   setApiStatus('loading');
-
-  const data = await TwelveData.getQuotes(symbols);
-  if (!data) {
-    setApiStatus('error');
-    quoteData = DEMO; // fallback
-    return;
-  }
-
-  // Twelve Data returns object keyed by symbol when multiple symbols requested
-  symbols.forEach(sym => {
-    if (data[sym] && data[sym].close) {
-      quoteData[sym] = data[sym];
+  try {
+    const url = apiUrl('/api/quotes') + '?symbols=' + encodeURIComponent(symbols.join(','));
+    const res = await fetch(url);
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok || payload.status !== 'ok') {
+      setApiStatus('error');
+      quoteData = DEMO;
+      return;
     }
-  });
-
-  setApiStatus('live');
+    symbols.forEach((sym) => {
+      if (payload.quotes?.[sym]?.close) quoteData[sym] = payload.quotes[sym];
+    });
+    setApiStatus('live');
+  } catch (_) {
+    setApiStatus('error');
+    quoteData = DEMO;
+  }
 }
 
 function setApiStatus(state) {
@@ -1552,24 +1473,6 @@ function setApiStatus(state) {
   else if (state === 'demo') { label.textContent = 'demo mode'; }
   else if (state === 'error') { dot.classList.add('error'); label.textContent = 'api error'; }
   else { label.textContent = 'loading...'; }
-}
-
-// ─────────────────────────────────────────
-// API KEY SETUP
-// ─────────────────────────────────────────
-function saveKey() {
-  const key = document.getElementById('api-key-input').value.trim();
-  if (!key) return;
-  TwelveData.key = key;
-  localStorage.setItem('gm_api_key', key);
-  document.getElementById('api-overlay').style.display = 'none';
-  init();
-}
-
-function useDemoData() {
-  isDemoMode = true;
-  document.getElementById('api-overlay').style.display = 'none';
-  init();
 }
 
 // ─────────────────────────────────────────
@@ -1633,12 +1536,7 @@ window.addEventListener('load', () => {
     });
   }
 
-  const saved = localStorage.getItem('gm_api_key');
-  if (saved) {
-    TwelveData.key = saved;
-    document.getElementById('api-overlay').style.display = 'none';
-    init();
-  }
+  init();
 });
 </script>
 </body>

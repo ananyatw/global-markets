@@ -140,6 +140,73 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
+async function proxyQuotes(searchParams) {
+  const raw = (searchParams.get('symbols') || '').trim();
+  if (!raw) return { status: 'error', message: 'missing_symbols', quotes: {} };
+  const symbols = raw
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+  if (!symbols.length) return { status: 'error', message: 'missing_symbols', quotes: {} };
+
+  const url = new URL('https://query1.finance.yahoo.com/v7/finance/quote');
+  url.searchParams.set('symbols', symbols.join(','));
+
+  const upstream = await fetch(url, {
+    headers: { 'User-Agent': 'global-markets-local-proxy/1.0' },
+  });
+  const data = await upstream.json().catch(() => ({}));
+  if (!upstream.ok) {
+    // Fallback path: some regions receive 401 for quote endpoint.
+    const quotes = {};
+    for (const sym of symbols) {
+      try {
+        const cUrl = new URL(`https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`);
+        cUrl.searchParams.set('range', '5d');
+        cUrl.searchParams.set('interval', '1d');
+        const cRes = await fetch(cUrl, { headers: { 'User-Agent': 'global-markets-local-proxy/1.0' } });
+        const cData = await cRes.json().catch(() => ({}));
+        const result = cData?.chart?.result?.[0];
+        const closes = result?.indicators?.quote?.[0]?.close || [];
+        const valid = closes.filter((n) => Number.isFinite(n));
+        const close = valid.length ? valid[valid.length - 1] : undefined;
+        const prev = valid.length > 1 ? valid[valid.length - 2] : undefined;
+        if (Number.isFinite(close)) {
+          const pct =
+            Number.isFinite(prev) && prev !== 0 ? ((close - prev) / prev) * 100 : 0;
+          quotes[sym] = {
+            close: String(close),
+            previous_close: Number.isFinite(prev) ? String(prev) : '',
+            percent_change: String(pct),
+          };
+        }
+      } catch (_) {}
+    }
+    if (Object.keys(quotes).length) return { status: 'ok', quotes, source: 'yahoo_chart_fallback' };
+    return {
+      status: 'error',
+      message: data?.quoteResponse?.error?.description || `HTTP ${upstream.status}`,
+      quotes: {},
+    };
+  }
+
+  const rows = data?.quoteResponse?.result || [];
+  const quotes = {};
+  for (const row of rows) {
+    const sym = String(row.symbol || '').toUpperCase();
+    if (!sym) continue;
+    quotes[sym] = {
+      close: String(row.regularMarketPrice ?? ''),
+      previous_close: String(row.regularMarketPreviousClose ?? ''),
+      percent_change:
+        row.regularMarketChangePercent === null || row.regularMarketChangePercent === undefined
+          ? ''
+          : String(row.regularMarketChangePercent),
+    };
+  }
+  return { status: 'ok', quotes };
+}
+
 function safeJoin(root, reqPath) {
   const decoded = decodeURIComponent(reqPath.split('?')[0]);
   const normalized = path.normalize(decoded).replace(/^(\.\.(\/|\\|$))+/, '');
@@ -345,7 +412,10 @@ const server = http.createServer(async (req, res) => {
 
   if (
     req.method === 'OPTIONS' &&
-    (u.pathname === '/api/news' || u.pathname === '/api/claude' || u.pathname === '/api/openrouter-verify')
+    (u.pathname === '/api/news' ||
+      u.pathname === '/api/quotes' ||
+      u.pathname === '/api/claude' ||
+      u.pathname === '/api/openrouter-verify')
   ) {
     res.writeHead(204, corsHeaders());
     res.end();
@@ -386,6 +456,23 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.writeHead(500, corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }));
       res.end(JSON.stringify({ status: 'error', message: String(e.message) }));
+    }
+    return;
+  }
+
+  if (u.pathname === '/api/quotes') {
+    try {
+      const payload = await proxyQuotes(u.searchParams);
+      res.writeHead(payload.status === 'ok' ? 200 : 502, {
+        ...corsHeaders({
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        }),
+      });
+      res.end(JSON.stringify(payload));
+    } catch (e) {
+      res.writeHead(500, corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }));
+      res.end(JSON.stringify({ status: 'error', message: String(e.message), quotes: {} }));
     }
     return;
   }
