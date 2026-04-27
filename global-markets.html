@@ -65,11 +65,29 @@
   .continent { fill: #0e1830; stroke: #1a2545; stroke-width: 0.6; }
 
   .market-pin { cursor: pointer; }
+  .market-pin .hit-area { fill: transparent; }
   .market-pin circle.outer { transition: r 0.2s, opacity 0.2s; }
   .market-pin:hover circle.outer { r: 11 !important; }
   .market-pin.selected circle.outer { stroke: var(--blue); stroke-width: 2.3; }
   .market-pin.selected circle.inner-dot { fill: var(--blue); }
-  .market-pin text { font-family: var(--sans); font-size: 10px; fill: rgba(232,234,242,0.7); pointer-events: none; }
+  .market-pin text {
+    font-family: var(--sans);
+    font-size: 10px;
+    fill: #e2e8f0;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.2s ease;
+  }
+  .market-city-label {
+    fill: #e2e8f0;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    opacity: 1;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+  }
+  .market-city-label.cluster-label { opacity: 0; }
+  .market-city-label.cluster-label.visible { opacity: 1; }
 
   @keyframes pulse {
     0%,100% { opacity: 0.5; transform: scale(1); }
@@ -216,7 +234,17 @@
   }
   .learn-explain-body.loading { color: var(--muted); font-family: var(--mono); font-size: 12px; }
   .learn-explain-err {
-    padding: 0 18px 16px; font-size: 12px; color: var(--red); line-height: 1.45;
+    padding: 10px 18px 12px;
+    font-size: 12px;
+    line-height: 1.45;
+    background: rgba(239, 68, 68, 0.1);
+    border-left: 3px solid #ef4444;
+    color: #fca5a5;
+  }
+  .learn-explain-err.info {
+    background: rgba(0, 229, 160, 0.08);
+    border-left-color: #00e5a0;
+    color: #6ee7b7;
   }
 
   .nav-index-toggle {
@@ -433,7 +461,7 @@
     <button class="skip-btn" onclick="useDemoData()">Use demo data instead →</button>
     <p class="api-note">
       Your key is stored only in localStorage on this device — never sent anywhere except Twelve Data's API.
-      For News and Learn (Claude), run <code style="font-family:var(--mono);font-size:10px">npm start</code> and open the local URL so requests go through the bundled dev proxy.
+      For News and Learn (OpenRouter), run <code style="font-family:var(--mono);font-size:10px">npm start</code> and open the local URL so requests go through the bundled dev proxy.
     </p>
   </div>
 </div>
@@ -471,6 +499,7 @@
         <path class="continent" d="M712,282 L812,272 L832,312 L822,362 L792,382 L752,377 L722,352 L707,317 Z"/>
         <path class="continent" d="M820,80 L870,82 L875,120 L855,145 L825,140 L810,110 Z"/>
         <g id="pins"></g>
+        <g id="pin-labels"></g>
       </svg>
       <div id="tooltip"></div>
     </div>
@@ -512,7 +541,7 @@
   </div>
 </div>
 
-<!-- Learn: Claude explanation -->
+<!-- Learn: OpenRouter explanation -->
 <div id="learn-explain-backdrop" class="learn-explain-backdrop" aria-hidden="true" onclick="closeLearnExplain()">
   <div class="learn-explain-modal" role="dialog" aria-modal="true" aria-labelledby="learn-explain-qtext" onclick="event.stopPropagation()">
     <div class="learn-explain-head">
@@ -532,11 +561,19 @@
 // indexSymbol = benchmark index ticker for paid / pro plans (verify on Twelve Data for your account)
 const MARKETS = [
   { id:'nyse',     name:'NYSE / NASDAQ', city:'New York',        tz:'America/New_York',       open:9.5,  close:16,   cx:175, cy:178, symbol:'SPY',  indexSymbol:'SPX',    label:'S&P 500',  cap:'$46T' },
+  { id:'bmv',      name:'BMV',           city:'Mexico City',      tz:'America/Mexico_City',    open:8.5,  close:15,   cx:150, cy:225, symbol:'EWW',  indexSymbol:'BMV',    label:'BMV',      cap:'$0.4T' },
   { id:'lse',      name:'London SE',     city:'London',          tz:'Europe/London',           open:8,    close:16.5, cx:395, cy:78,  symbol:'EWU',  indexSymbol:'FTSE',   label:'FTSE 100', cap:'$3.8T' },
+  { id:'ams',      name:'Euronext AMS',  city:'Amsterdam',        tz:'Europe/Amsterdam',        open:9,    close:17.5, cx:410, cy:72,  symbol:'EWN',  indexSymbol:'AEX',    label:'AEX',      cap:'$1.0T' },
   { id:'fwb',      name:'Frankfurt',     city:'Frankfurt',       tz:'Europe/Berlin',           open:9,    close:17.5, cx:428, cy:70,  symbol:'EWG',  indexSymbol:'DAX',    label:'DAX',      cap:'$2.4T' },
+  { id:'six',      name:'SIX Swiss',     city:'Zurich',           tz:'Europe/Zurich',           open:9,    close:17.5, cx:420, cy:90,  symbol:'EWL',  indexSymbol:'SMI',    label:'SMI',      cap:'$1.8T' },
   { id:'euronext', name:'Euronext',      city:'Paris',           tz:'Europe/Paris',            open:9,    close:17.5, cx:412, cy:82,  symbol:'EWQ',  indexSymbol:'CAC40',  label:'CAC 40',   cap:'$5.6T' },
+  { id:'dfm',      name:'Dubai FM',      city:'Dubai',            tz:'Asia/Dubai',              open:10,   close:15,   cx:548, cy:145, symbol:'UAE',  indexSymbol:'DFM',    label:'DFM',      cap:'$0.2T' },
   { id:'sse',      name:'Shanghai SE',   city:'Shanghai',        tz:'Asia/Shanghai',           open:9.5,  close:15,   cx:718, cy:118, symbol:'FXI',  indexSymbol:'SSEC',   label:'SSE Comp', cap:'$7.1T' },
+  { id:'szse',     name:'Shenzhen SE',   city:'Shenzhen',         tz:'Asia/Shanghai',           open:9.5,  close:15,   cx:722, cy:140, symbol:'ASHR', indexSymbol:'SZSE',   label:'SZSE',     cap:'$5.0T' },
   { id:'hkex',     name:'HKEX',          city:'Hong Kong',       tz:'Asia/Hong_Kong',          open:9.5,  close:16,   cx:732, cy:148, symbol:'EWH',  indexSymbol:'HSI',    label:'Hang Seng',cap:'$3.9T' },
+  { id:'sgx',      name:'SGX',           city:'Singapore',        tz:'Asia/Singapore',          open:9,    close:17,   cx:690, cy:214, symbol:'EWS',  indexSymbol:'STI',    label:'STI',      cap:'$0.6T' },
+  { id:'twse',     name:'Taipei EX',     city:'Taipei',           tz:'Asia/Taipei',             open:9,    close:13.5, cx:741, cy:135, symbol:'EWT',  indexSymbol:'TAIEX',  label:'TAIEX',    cap:'$1.9T' },
+  { id:'krx',      name:'KRX',           city:'Seoul',            tz:'Asia/Seoul',              open:9,    close:15.5, cx:748, cy:123, symbol:'EWY',  indexSymbol:'KOSPI',  label:'KOSPI',    cap:'$2.1T' },
   { id:'tse',      name:'Tokyo SE',      city:'Tokyo',           tz:'Asia/Tokyo',              open:9,    close:15.5, cx:772, cy:118, symbol:'EWJ',  indexSymbol:'NI225',  label:'Nikkei',   cap:'$6.3T' },
   { id:'bse',      name:'BSE / NSE',     city:'Mumbai',          tz:'Asia/Kolkata',            open:9.25, close:15.5, cx:555, cy:158, symbol:'INDA', indexSymbol:'SENSEX', label:'SENSEX',   cap:'$4.6T' },
   { id:'asx',      name:'ASX',           city:'Sydney',          tz:'Australia/Sydney',        open:10,   close:16,   cx:775, cy:338, symbol:'EWA',  indexSymbol:'XJO',    label:'ASX 200',  cap:'$1.8T' },
@@ -559,18 +596,46 @@ const NEWS_TAB_CONFIG = {
 const MARKET_TO_TAB = {
   nyse: 'US',
   tsx: 'US',
+  bmv: 'US',
   lse: 'EU',
+  ams: 'EU',
   fwb: 'EU',
+  six: 'EU',
   euronext: 'EU',
   sse: 'ASIA',
+  szse: 'ASIA',
   hkex: 'ASIA',
+  sgx: 'ASIA',
+  twse: 'ASIA',
+  krx: 'ASIA',
   tse: 'ASIA',
   asx: 'ASIA',
   asx2: 'ASIA',
   bse: 'INDIA',
+  dfm: 'ASIA',
   tadawul: 'ASIA',
   bovespa: 'GLOBAL',
   jse: 'GLOBAL',
+};
+
+const TIER1_MARKETS = new Set(['nyse', 'lse', 'tse', 'sse']);
+const CLUSTER_LABEL_IDS = new Set([
+  'lse', 'euronext', 'fwb', 'ams', 'six',
+  'sse', 'krx', 'szse', 'hkex', 'twse',
+]);
+const LABEL_POS = {
+  // Europe cluster (requested)
+  lse: { dx: -8, dy: 0, anchor: 'end' },      // London left
+  euronext: { dx: -8, dy: 16, anchor: 'end' },// Paris below-left
+  fwb: { dx: 8, dy: 0, anchor: 'start' },     // Frankfurt right
+  ams: { dx: 0, dy: -8, anchor: 'middle' },   // Amsterdam above
+  six: { dx: 8, dy: 16, anchor: 'start' },    // Zurich below-right
+  // East Asia cluster
+  sse: { dx: -10, dy: -8, anchor: 'end' },
+  krx: { dx: 10, dy: -6, anchor: 'start' },
+  szse: { dx: 10, dy: 12, anchor: 'start' },
+  hkex: { dx: 8, dy: 18, anchor: 'start' },
+  twse: { dx: -10, dy: 8, anchor: 'end' },
 };
 
 function useIndexMode() {
@@ -602,11 +667,19 @@ const TwelveData = {
 // Demo data fallback (realistic values)
 const DEMO = {
   SPY:  { close:'519.84', percent_change:'0.82',  previous_close:'515.62' },
+  EWW:  { close:'67.42',  percent_change:'0.35',  previous_close:'67.19' },
   EWU:  { close:'36.41',  percent_change:'-0.31', previous_close:'36.52' },
+  EWN:  { close:'49.10',  percent_change:'0.28',  previous_close:'48.96' },
   EWG:  { close:'32.18',  percent_change:'0.55',  previous_close:'32.00' },
+  EWL:  { close:'51.73',  percent_change:'0.19',  previous_close:'51.63' },
   EWQ:  { close:'28.74',  percent_change:'0.17',  previous_close:'28.69' },
+  UAE:  { close:'16.02',  percent_change:'-0.21', previous_close:'16.05' },
   FXI:  { close:'30.12',  percent_change:'-0.28', previous_close:'30.21' },
+  ASHR: { close:'24.84',  percent_change:'0.48',  previous_close:'24.72' },
   EWH:  { close:'19.88',  percent_change:'0.63',  previous_close:'19.75' },
+  EWS:  { close:'21.96',  percent_change:'0.33',  previous_close:'21.89' },
+  EWT:  { close:'52.41',  percent_change:'0.92',  previous_close:'51.93' },
+  EWY:  { close:'67.12',  percent_change:'0.61',  previous_close:'66.71' },
   EWJ:  { close:'68.44',  percent_change:'1.08',  previous_close:'67.71' },
   INDA: { close:'46.22',  percent_change:'1.12',  previous_close:'45.71' },
   EWA:  { close:'24.18',  percent_change:'0.22',  previous_close:'24.13' },
@@ -634,6 +707,18 @@ let activeNewsTab = 'GLOBAL';
 let lastNewsFetchAt = 0;
 let latestNewsRequestId = 0;
 let pendingLearnQuestion = '';
+
+function clearClusterHoverLabels() {
+  document.querySelectorAll('.market-city-label.cluster-label.visible').forEach((el) => {
+    el.classList.remove('visible');
+    const x = el.dataset.baseX;
+    const y = el.dataset.baseY;
+    const anchor = el.dataset.baseAnchor;
+    if (x) el.setAttribute('x', x);
+    if (y) el.setAttribute('y', y);
+    if (anchor) el.setAttribute('text-anchor', anchor);
+  });
+}
 
 // ─────────────────────────────────────────
 // MARKET STATUS
@@ -665,19 +750,31 @@ function statusPillClass(s) {
 // ─────────────────────────────────────────
 function renderPins() {
   const g = document.getElementById('pins');
-  if (!g) return;
+  const labelLayer = document.getElementById('pin-labels');
+  if (!g || !labelLayer) return;
   g.innerHTML = '';
+  labelLayer.innerHTML = '';
 
   MARKETS.forEach((m) => {
     const s = getStatus(m);
     const col = statusColor(s);
     const q = quoteData[quoteSym(m)] || {};
     const isOpen = s === 'open';
+    const isTier1 = TIER1_MARKETS.has(m.id);
+    const placement = LABEL_POS[m.id] || { dx: 0, dy: 20, anchor: 'middle' };
 
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     group.setAttribute('class', 'market-pin');
     group.setAttribute('data-id', m.id);
     if (m.id === selectedMarketId) group.classList.add('selected');
+
+    // Larger invisible target improves hover reliability in dense clusters.
+    const hit = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    hit.setAttribute('cx', m.cx);
+    hit.setAttribute('cy', m.cy);
+    hit.setAttribute('r', isTier1 ? '14' : '12');
+    hit.setAttribute('class', 'hit-area');
+    group.appendChild(hit);
 
     if (isOpen) {
       const pulse = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -703,23 +800,50 @@ function renderPins() {
     const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     dot.setAttribute('cx', m.cx);
     dot.setAttribute('cy', m.cy);
-    dot.setAttribute('r', '3.5');
+    dot.setAttribute('r', isTier1 ? '6' : '4');
     dot.setAttribute('fill', col);
     dot.setAttribute('class', 'inner-dot');
     group.appendChild(dot);
 
     const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    txt.setAttribute('x', m.cx);
-    txt.setAttribute('y', m.cy + 20);
-    txt.setAttribute('text-anchor', 'middle');
-    txt.setAttribute('fill', 'rgba(232,234,242,0.55)');
+    const baseX = m.cx + placement.dx;
+    const baseY = m.cy + placement.dy;
+    txt.setAttribute('x', String(baseX));
+    txt.setAttribute('y', String(baseY));
+    txt.setAttribute('text-anchor', placement.anchor);
     txt.setAttribute('font-size', '10');
+    txt.setAttribute('class', 'market-city-label');
+    if (CLUSTER_LABEL_IDS.has(m.id) && !isTier1) {
+      txt.classList.add('cluster-label');
+    }
+    txt.dataset.baseX = String(baseX);
+    txt.dataset.baseY = String(baseY);
+    txt.dataset.baseAnchor = placement.anchor;
     txt.textContent = m.city;
-    group.appendChild(txt);
+    labelLayer.appendChild(txt);
 
-    group.addEventListener('mouseenter', (e) => showTooltip(m, s, q, e));
+    group.addEventListener('mouseenter', (e) => {
+      // Bring hovered group to front so its hover label stays above nearby pins.
+      g.appendChild(group);
+      if (CLUSTER_LABEL_IDS.has(m.id) && !isTier1) {
+        clearClusterHoverLabels();
+        txt.setAttribute('x', String(m.cx));
+        txt.setAttribute('y', String(m.cy - 10));
+        txt.setAttribute('text-anchor', 'middle');
+        txt.classList.add('visible');
+      }
+      showTooltip(m, s, q, e);
+    });
     group.addEventListener('mousemove', (e) => moveTooltip(e));
-    group.addEventListener('mouseleave', hideTooltip);
+    group.addEventListener('mouseleave', () => {
+      hideTooltip();
+      if (CLUSTER_LABEL_IDS.has(m.id) && !isTier1) {
+        txt.setAttribute('x', txt.dataset.baseX || String(baseX));
+        txt.setAttribute('y', txt.dataset.baseY || String(baseY));
+        txt.setAttribute('text-anchor', txt.dataset.baseAnchor || placement.anchor);
+        txt.classList.remove('visible');
+      }
+    });
     group.addEventListener('click', () => handleMarketPinClick(m.id));
 
     g.appendChild(group);
@@ -851,35 +975,94 @@ const LEARN_CARDS = [
   { label:'Risk', icon:'🛡️', q:'What is diversification and how do global markets help reduce investment risk?' },
 ];
 
-function saveClaudeKey() {
-  const input = document.getElementById('claude-key-input');
+function sanitizeApiKey(raw) {
+  const v = String(raw || '')
+    .trim()
+    .replace(/[\r\n\t]/g, '')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2026]/g, '')
+    .replace(/[^\x20-\x7E]/g, '');
+  return v;
+}
+
+function saveOpenRouterKey() {
+  const input =
+    document.getElementById('openrouter-key-input') || document.getElementById('claude-key-input');
   if (!input) return;
-  const v = input.value.trim();
-  if (v) localStorage.setItem('anthropic_key', v);
-  else localStorage.removeItem('anthropic_key');
-  const hint = document.getElementById('claude-key-hint');
+  const v = sanitizeApiKey(input.value);
+  input.value = v;
+  if (v) localStorage.setItem('openrouter_key', v);
+  else localStorage.removeItem('openrouter_key');
+  const hint =
+    document.getElementById('openrouter-key-hint') || document.getElementById('claude-key-hint');
   if (hint) {
-    hint.textContent = localStorage.getItem('anthropic_key')
-      ? 'Saved in this browser only.'
+    hint.textContent = localStorage.getItem('openrouter_key')
+      ? 'OpenRouter key saved. Verifying...'
       : '';
   }
+  verifyOpenRouterKey();
 }
+window.saveClaudeKey = saveOpenRouterKey;
+window.saveOpenRouterKey = saveOpenRouterKey;
 
 async function fetchClaudeExplanation(question) {
   const headers = { 'Content-Type': 'application/json' };
-  const k = localStorage.getItem('anthropic_key') || localStorage.getItem('gm_anthropic_key');
-  if (k) headers['x-anthropic-api-key'] = k;
+  const k = sanitizeApiKey(
+    localStorage.getItem('openrouter_key') ||
+      localStorage.getItem('anthropic_key') ||
+      localStorage.getItem('gm_anthropic_key'),
+  );
+  if (k) headers['x-openrouter-api-key'] = k;
   const res = await fetch(apiUrl('/api/claude'), {
     method: 'POST',
     headers,
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, apiKey: k || undefined }),
   });
   const j = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = j.message || j.error || `HTTP ${res.status}`;
     throw new Error(msg);
   }
-  return j.text || '';
+  return { text: j.text || '', modelUsed: j.modelUsed || '' };
+}
+
+async function verifyOpenRouterKey() {
+  const hint =
+    document.getElementById('openrouter-key-hint') || document.getElementById('claude-key-hint');
+  const k = sanitizeApiKey(localStorage.getItem('openrouter_key'));
+  if (!hint || !k) return;
+  try {
+    const res = await fetch(apiUrl('/api/claude'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-openrouter-api-key': k },
+      body: JSON.stringify({ question: 'Reply with exactly: OK', apiKey: k }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(j.message || j.error || `HTTP ${res.status}`);
+    }
+    hint.textContent = j.modelUsed
+      ? `Key verified. Model: ${j.modelUsed}`
+      : 'Key verified.';
+  } catch (e) {
+    // If model routing is temporarily unavailable, still verify key via models endpoint.
+    try {
+      const verifyRes = await fetch(apiUrl('/api/openrouter-verify'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-openrouter-api-key': k },
+      body: JSON.stringify({ apiKey: k }),
+    });
+      const verifyJson = await verifyRes.json().catch(() => ({}));
+      if (verifyRes.ok && verifyJson.ok) {
+        hint.textContent = 'Key verified. Model endpoints may be temporarily busy.';
+        return;
+      }
+      throw new Error(verifyJson.message || verifyJson.error || `HTTP ${verifyRes.status}`);
+    } catch (e2) {
+      hint.textContent = `Key check failed: ${String(e2.message || e2)}`;
+    }
+  }
 }
 
 function renderSimpleMarkdown(text) {
@@ -929,9 +1112,9 @@ function renderLearnInlineKeyPrompt() {
   body.classList.remove('loading');
   body.innerHTML = `
     <div class="learn-inline-key">
-      <p>Add your Claude API key to continue. It stays in local storage on this browser.</p>
+      <p>Add your free OpenRouter key above. It stays in local storage on this browser.</p>
       <div class="learn-claude-row">
-        <input type="password" id="learn-inline-key-input" placeholder="sk-ant-..." autocomplete="off" />
+        <input type="password" id="learn-inline-key-input" placeholder="or-... or sk-or-v1-..." autocomplete="off" />
         <button type="button" onclick="submitInlineLearnKey()">Save & Retry</button>
       </div>
     </div>
@@ -940,9 +1123,10 @@ function renderLearnInlineKeyPrompt() {
 
 function submitInlineLearnKey() {
   const input = document.getElementById('learn-inline-key-input');
-  const v = input?.value?.trim();
+  const v = sanitizeApiKey(input?.value);
   if (!v || !pendingLearnQuestion) return;
-  localStorage.setItem('anthropic_key', v);
+  input.value = v;
+  localStorage.setItem('openrouter_key', v);
   openLearnExplain(pendingLearnQuestion);
 }
 
@@ -962,15 +1146,20 @@ function openLearnExplain(question) {
 
   qEl.textContent = question;
   errEl.textContent = '';
+  errEl.classList.remove('info');
   pendingLearnQuestion = question;
   renderLearnLoading();
   root.classList.add('show');
   root.setAttribute('aria-hidden', 'false');
 
   fetchClaudeExplanation(question)
-    .then((text) => {
+    .then(({ text, modelUsed }) => {
       body.classList.remove('loading');
       body.innerHTML = renderSimpleMarkdown(text || '(Empty response.)');
+      if (modelUsed) {
+        errEl.classList.add('info');
+        errEl.textContent = `Model: ${modelUsed}`;
+      }
     })
     .catch((e) => {
       if (String(e.message || e).toLowerCase().includes('missing_api_key')) {
@@ -980,7 +1169,7 @@ function openLearnExplain(question) {
       }
       body.classList.remove('loading');
       body.textContent = '';
-      errEl.textContent = String(e.message || e);
+      errEl.textContent = String(e.message || e) + ' — Add your free OpenRouter key above.';
     });
 }
 
@@ -992,27 +1181,42 @@ function renderLearn() {
   setup.className = 'learn-claude-setup';
   setup.innerHTML = `
     <p>
-      Tap a topic to get a short explanation from <strong>Claude</strong> (via your local
+      Tap a topic to get a short explanation from <strong>OpenRouter</strong> (via your local
       <code style="font-family:var(--mono);font-size:10px">npm start</code> proxy).
-      Keys: <a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a>
-      or set <code style="font-family:var(--mono);font-size:10px">ANTHROPIC_API_KEY</code> when starting the server.
+      Keys: <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>
+      or set <code style="font-family:var(--mono);font-size:10px">OPENROUTER_API_KEY</code> when starting the server.
     </p>
     <div class="learn-claude-row">
-      <input type="password" id="claude-key-input" placeholder="sk-ant-… (optional if env key set)" autocomplete="off" />
-      <button type="button" onclick="saveClaudeKey()">Save</button>
+      <input type="password" id="openrouter-key-input" placeholder="or-... or sk-or-v1-... (optional if env key set)" autocomplete="off" />
+      <button type="button" id="openrouter-save-btn" onclick="saveOpenRouterKey()">Save</button>
     </div>
-    <p id="claude-key-hint" style="font-size:10px;color:var(--faint);margin-top:6px;margin-bottom:0"></p>
+    <p id="openrouter-key-hint" style="font-size:10px;color:var(--faint);margin-top:6px;margin-bottom:0"></p>
   `;
   panel.appendChild(setup);
 
-  const hint = setup.querySelector('#claude-key-hint');
-  if (localStorage.getItem('anthropic_key') || localStorage.getItem('gm_anthropic_key')) {
-    if (!localStorage.getItem('anthropic_key') && localStorage.getItem('gm_anthropic_key')) {
-      localStorage.setItem('anthropic_key', localStorage.getItem('gm_anthropic_key'));
+  const hint = setup.querySelector('#openrouter-key-hint');
+  const saveBtn = setup.querySelector('#openrouter-save-btn');
+  const keyInput = setup.querySelector('#openrouter-key-input');
+  if (saveBtn) saveBtn.addEventListener('click', saveOpenRouterKey);
+  if (keyInput) {
+    keyInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') saveOpenRouterKey();
+    });
+  }
+  if (
+    localStorage.getItem('openrouter_key') ||
+    localStorage.getItem('anthropic_key') ||
+    localStorage.getItem('gm_anthropic_key')
+  ) {
+    if (!localStorage.getItem('openrouter_key') && localStorage.getItem('anthropic_key')) {
+      localStorage.setItem('openrouter_key', localStorage.getItem('anthropic_key'));
+    } else if (!localStorage.getItem('openrouter_key') && localStorage.getItem('gm_anthropic_key')) {
+      localStorage.setItem('openrouter_key', localStorage.getItem('gm_anthropic_key'));
     }
   }
-  if (localStorage.getItem('anthropic_key') && hint) {
+  if (localStorage.getItem('openrouter_key') && hint) {
     hint.textContent = 'A browser-stored key is on file (re-enter to replace).';
+    verifyOpenRouterKey();
   }
 
   LEARN_CARDS.forEach((card) => {
@@ -1283,8 +1487,31 @@ function switchTab(tab) {
 // ─────────────────────────────────────────
 function updateClock() {
   const now = new Date();
-  const t = now.toUTCString().match(/(\d{2}:\d{2}:\d{2})/)[1];
-  document.getElementById('utc-clock').textContent = t + ' UTC';
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const localAbbr = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    timeZoneName: 'short',
+  })
+    .formatToParts(now)
+    .find((p) => p.type === 'timeZoneName')?.value || tz.split('/').pop();
+
+  const localTime = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now);
+
+  const utcTime = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'UTC',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now);
+
+  document.getElementById('utc-clock').textContent = `[LOCAL ${localTime} ${localAbbr}] [UTC ${utcTime}]`;
 }
 
 // ─────────────────────────────────────────
@@ -1397,6 +1624,14 @@ window.addEventListener('load', () => {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeLearnExplain();
   });
+
+  const mapWrap = document.getElementById('map-wrap');
+  if (mapWrap) {
+    mapWrap.addEventListener('mouseleave', () => {
+      clearClusterHoverLabels();
+      hideTooltip();
+    });
+  }
 
   const saved = localStorage.getItem('gm_api_key');
   if (saved) {

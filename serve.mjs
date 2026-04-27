@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Serves global-markets.html and proxies NewsAPI + Anthropic (browser-safe).
+ * Serves global-markets.html and proxies NewsAPI + OpenRouter (browser-safe).
  *
  * Env:
  *   NEWS_API_KEY     — overrides bundled NewsAPI key (use for public repos; never commit secrets)
- *   ANTHROPIC_API_KEY — Claude key for Learn explanations (optional if browser sends x-anthropic-api-key)
- *   ANTHROPIC_MODEL  — default claude-3-5-sonnet-20241022
+ *   OPENROUTER_API_KEY — key for Learn explanations (optional if browser sends x-openrouter-api-key)
+ *   OPENROUTER_MODEL   — default meta-llama/llama-3.3-8b-instruct:free
  */
 import http from 'node:http';
 import fs from 'node:fs';
@@ -18,17 +18,33 @@ const fetch = typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(glo
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3847;
 const NEWS_KEY = (process.env.NEWS_API_KEY?.trim() || 'd6f20474eeaa45d19ff487af60ab1fa0').trim();
-const ANTHROPIC_KEY = (process.env.ANTHROPIC_API_KEY || '').trim();
-const ANTHROPIC_MODEL = (process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022').trim();
+const OPENROUTER_KEY = (process.env.OPENROUTER_API_KEY || '').trim();
+const OPENROUTER_MODEL = (
+  process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-8b-instruct:free'
+).trim();
+const OPENROUTER_FALLBACK_MODELS = [
+  'meta-llama/llama-3.1-8b-instruct:free',
+  'mistralai/mistral-7b-instruct:free',
+  'google/gemma-2-9b-it:free',
+  'openrouter/auto',
+];
 
 const MAX_JSON_BODY = 256 * 1024;
 const MARKET_NEWS_MAP = {
   'new york': { country: 'us', q: 'wall street stock market' },
+  'mexico city': { country: 'mx', q: 'mexico bmv stock market' },
   london: { country: 'gb', q: 'london stock market ftse' },
+  amsterdam: { country: 'nl', q: 'amsterdam aex stock market' },
   frankfurt: { country: 'de', q: 'germany dax stocks' },
+  zurich: { country: 'ch', q: 'switzerland smi stocks' },
   paris: { country: 'fr', q: 'france cac40 stocks' },
+  dubai: { country: 'ae', q: 'dubai dfm stocks' },
   shanghai: { country: 'cn', q: 'china stock market' },
+  shenzhen: { country: 'cn', q: 'shenzhen stock market' },
   'hong kong': { country: 'hk', q: 'hang seng hong kong stocks' },
+  singapore: { country: 'sg', q: 'singapore sti stock market' },
+  taipei: { country: 'tw', q: 'taiwan taiex stocks' },
+  seoul: { country: 'kr', q: 'kospi seoul stock market' },
   tokyo: { country: 'jp', q: 'nikkei tokyo stocks' },
   mumbai: { country: 'in', q: 'india sensex nse bse' },
   sydney: { country: 'au', q: 'asx australia stocks' },
@@ -44,7 +60,7 @@ function corsHeaders(extra = {}) {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Anthropic-Api-Key',
+    'Access-Control-Allow-Headers': 'Content-Type, X-OpenRouter-Api-Key, X-Anthropic-Api-Key',
     ...extra,
   };
 }
@@ -192,57 +208,88 @@ async function proxyClaude(req, res) {
     return;
   }
 
-  const headerKey = (req.headers['x-anthropic-api-key'] || '').trim();
-  const apiKey = headerKey || ANTHROPIC_KEY;
+  const headerKey =
+    (req.headers['x-openrouter-api-key'] || req.headers['x-anthropic-api-key'] || '').trim();
+  const bodyKey = String(body.apiKey || '').trim();
+  const apiKey = headerKey || bodyKey || OPENROUTER_KEY;
   if (!apiKey) {
     res.writeHead(503, corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }));
     res.end(
       JSON.stringify({
         error: 'missing_api_key',
         message:
-          'Set ANTHROPIC_API_KEY when starting the server, or paste a key in the Learn tab (stored locally and sent only to this dev server).',
+          'Set OPENROUTER_API_KEY when starting the server, or paste a key in the Learn tab (stored locally and sent only to this dev server).',
       }),
     );
     return;
   }
 
-  const payload = {
-    model: ANTHROPIC_MODEL,
-    max_tokens: 2048,
-    system:
-      'You are a clear, accurate finance educator for curious beginners. Answer in plain language. Use short paragraphs or bullet lists when helpful. Do not give personalized investment advice, trade recommendations, or promises about returns.',
-    messages: [{ role: 'user', content: question }],
-  };
+  const baseMessages = [
+    {
+      role: 'system',
+      content:
+        'You are a clear, accurate finance educator for curious beginners. Answer in plain language. Use short paragraphs or bullet lists when helpful. Do not give personalized investment advice, trade recommendations, or promises about returns.',
+    },
+    { role: 'user', content: question },
+  ];
 
-  let upstream;
-  try {
-    upstream = await fetch('https://api.anthropic.com/v1/messages', {
+  const modelsToTry = [OPENROUTER_MODEL, ...OPENROUTER_FALLBACK_MODELS].filter(
+    (m, i, arr) => m && arr.indexOf(m) === i,
+  );
+
+  async function callOpenRouter(model) {
+    const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        model,
+        max_tokens: 2048,
+        messages: baseMessages,
+      }),
     });
+    const data = await upstream.json().catch(() => ({}));
+    return { upstream, data, model };
+  }
+
+  let result;
+  try {
+    for (const model of modelsToTry) {
+      const attempt = await callOpenRouter(model);
+      const msg = String(attempt.data?.error?.message || attempt.data?.message || '');
+      if (attempt.upstream.ok) {
+        result = attempt;
+        break;
+      }
+      // If chosen model has no active endpoint, try fallback models automatically.
+      if (msg.toLowerCase().includes('no endpoints found')) {
+        result = attempt;
+        continue;
+      }
+      result = attempt;
+      break;
+    }
   } catch (e) {
     res.writeHead(502, corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }));
     res.end(JSON.stringify({ error: 'upstream_network', message: String(e.message) }));
     return;
   }
 
-  const data = await upstream.json().catch(() => ({}));
-  if (!upstream.ok) {
-    const msg = data.error?.message || data.message || `HTTP ${upstream.status}`;
-    res.writeHead(upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502, {
+  const { upstream, data, model } = result || {};
+  if (!upstream || !upstream.ok) {
+    const msg = data?.error?.message || data?.message || `HTTP ${upstream?.status || 502}`;
+    const status =
+      upstream?.status >= 400 && upstream?.status < 600 ? upstream.status : 502;
+    res.writeHead(status, {
       ...corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }),
     });
-    res.end(JSON.stringify({ error: 'anthropic_error', message: msg }));
+    res.end(JSON.stringify({ error: 'openrouter_error', message: msg, modelTried: model }));
     return;
   }
 
-  const parts = (data.content || []).filter((c) => c.type === 'text').map((c) => c.text);
-  const text = parts.join('\n').trim() || '(No text in response.)';
+  const text = String(data.choices?.[0]?.message?.content || '').trim() || '(No text in response.)';
 
   res.writeHead(200, {
     ...corsHeaders({
@@ -250,7 +297,47 @@ async function proxyClaude(req, res) {
       'Cache-Control': 'no-store',
     }),
   });
-  res.end(JSON.stringify({ text }));
+  res.end(JSON.stringify({ text, modelUsed: model }));
+}
+
+async function verifyOpenRouterKey(req, res) {
+  let body = {};
+  try {
+    body = await readJsonBody(req);
+  } catch (_) {}
+
+  const headerKey =
+    (req.headers['x-openrouter-api-key'] || req.headers['x-anthropic-api-key'] || '').trim();
+  const bodyKey = String(body.apiKey || '').trim();
+  const apiKey = headerKey || bodyKey || OPENROUTER_KEY;
+  if (!apiKey) {
+    res.writeHead(400, corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }));
+    res.end(JSON.stringify({ ok: false, error: 'missing_api_key' }));
+    return;
+  }
+
+  try {
+    const upstream = await fetch('https://openrouter.ai/api/v1/models', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+    const data = await upstream.json().catch(() => ({}));
+    if (!upstream.ok) {
+      const msg = data.error?.message || data.message || `HTTP ${upstream.status}`;
+      res.writeHead(upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502, {
+        ...corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }),
+      });
+      res.end(JSON.stringify({ ok: false, error: 'openrouter_error', message: msg }));
+      return;
+    }
+    res.writeHead(200, corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }));
+    res.end(JSON.stringify({ ok: true }));
+  } catch (e) {
+    res.writeHead(502, corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }));
+    res.end(JSON.stringify({ ok: false, error: 'upstream_network', message: String(e.message) }));
+  }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -258,7 +345,7 @@ const server = http.createServer(async (req, res) => {
 
   if (
     req.method === 'OPTIONS' &&
-    (u.pathname === '/api/news' || u.pathname === '/api/claude')
+    (u.pathname === '/api/news' || u.pathname === '/api/claude' || u.pathname === '/api/openrouter-verify')
   ) {
     res.writeHead(204, corsHeaders());
     res.end();
@@ -271,6 +358,16 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.writeHead(500, corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }));
       res.end(JSON.stringify({ error: 'server_error', message: String(e.message) }));
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && u.pathname === '/api/openrouter-verify') {
+    try {
+      await verifyOpenRouterKey(req, res);
+    } catch (e) {
+      res.writeHead(500, corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }));
+      res.end(JSON.stringify({ ok: false, error: 'server_error', message: String(e.message) }));
     }
     return;
   }
@@ -316,7 +413,7 @@ server.listen(PORT, () => {
   if (!process.env.NEWS_API_KEY?.trim()) {
     console.log('NewsAPI: using bundled key; set NEWS_API_KEY to override.');
   }
-  if (!ANTHROPIC_KEY) {
-    console.log('ANTHROPIC_API_KEY not set — Learn tab can still use a key saved in the browser.');
+  if (!OPENROUTER_KEY) {
+    console.log('OPENROUTER_API_KEY not set — Learn tab can still use a key saved in the browser.');
   }
 });
