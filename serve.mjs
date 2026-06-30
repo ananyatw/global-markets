@@ -17,7 +17,7 @@ const fetch = typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(glo
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3847;
-const NEWS_KEY = (process.env.NEWS_API_KEY?.trim() || 'd6f20474eeaa45d19ff487af60ab1fa0').trim();
+const NEWS_KEY = (process.env.NEWS_API_KEY || '').trim();
 const OPENROUTER_KEY = (process.env.OPENROUTER_API_KEY || '').trim();
 const OPENROUTER_MODEL = (
   process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-8b-instruct:free'

@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Global Markets</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1349,15 +1350,12 @@ async function loadNews(withTransition = false) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     data = await res.json();
   } catch (e) {
+    const isLocal = window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
     list.innerHTML = `
       <div class="news-empty">
-        Could not reach the news proxy. In this project folder run
-        <span style="font-family:var(--mono);color:var(--text)">npm start</span>
-        and keep it running, then reload. Prefer
-        <a href="http://127.0.0.1:3847/" style="color:var(--accent)">http://127.0.0.1:3847/</a>.
-        If you use a different port, set
-        <span style="font-family:var(--mono);color:var(--text)">localStorage.gm_dev_api_base</span>
-        to your server URL (e.g. <span style="font-family:var(--mono)">http://127.0.0.1:5000</span>).
+        ${isLocal
+          ? 'Could not reach the news proxy. Run <span style="font-family:var(--mono);color:var(--text)">npm start</span> and reload.'
+          : 'Could not load news headlines. Please try again shortly.'}
       </div>`;
     list.classList.remove('updating');
     return;
