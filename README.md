@@ -1,47 +1,61 @@
-## 🤖 Live AI Explanations (Learn Tab)
+# Global Markets
 
-The Learn tab uses AI to explain stock market concepts in plain English.
-It works out of the box with a free OpenRouter key — no credit card required.
+A real-time global stock markets dashboard. Interactive world map with live prices, market news, and AI-powered finance explanations.
 
-### Get your free key (2 minutes)
+**[Live Demo →](https://global-markets.vercel.app)** <!-- update this link after deploying -->
 
-1. Go to [openrouter.ai](https://openrouter.ai) and sign up
-2. Navigate to [openrouter.ai/keys](https://openrouter.ai/keys)
-3. Click **Create Key** — the free tier is enough
-4. Paste it into the key input on the Learn tab and hit **Save**
+![Global Markets screenshot](https://raw.githubusercontent.com/ananyatw/global-markets/dev/screenshot.png)
 
-That's it. The key is stored locally in your browser and never sent
-anywhere except OpenRouter's API.
+---
 
-### Running the app
+## Features
+
+- **Interactive world map** — 22 stock exchanges as clickable pins with open/closed/pre-market status
+- **Live prices** — ETF proxies and index tickers via Yahoo Finance, refreshed every 60 seconds
+- **Market news** — headlines filtered by region via NewsAPI, with demo fallback when no key is set
+- **AI Learn tab** — tap any finance topic to get a plain-language explanation; supports OpenRouter, Gemini, and Groq — works for visitors out of the box with a server-side key, or bring your own
+
+---
+
+## Running locally
 
 ```bash
-git clone https://github.com/YOURNAME/global-markets.git
+git clone https://github.com/ananyatw/global-markets.git
 cd global-markets
+cp .env.example .env   # add your keys
 npm install
 npm start
+# → http://localhost:3847
 ```
 
-Then open http://localhost:3847 in your browser.
+---
 
-### Optional: set your key via environment variable
+## Deploying to Vercel
 
-If you'd rather not paste the key in the UI every time:
+1. Import this repo at [vercel.com](https://vercel.com)
+2. Add environment variables (Settings → Environment Variables):
 
-```bash
-OPENROUTER_API_KEY=your_key_here npm start
-```
+| Variable | Required | Where to get it |
+|---|---|---|
+| `OPENROUTER_API_KEY` | Yes (for AI tab) | [openrouter.ai/keys](https://openrouter.ai/keys) — free |
+| `NEWS_API_KEY` | Optional | [newsapi.org/register](https://newsapi.org/register) — free |
 
-### Market data (optional)
+3. Deploy — Vercel auto-detects the `api/` folder and `vercel.json`
 
-Live stock quotes use [Twelve Data](https://twelvedata.com) — also free
-tier, also paste-in-the-UI. Without a key, the app runs on realistic
-demo data so everything still works and looks right.
+The app works without any keys: Yahoo Finance quotes load live, news falls back to sample headlines, and the AI tab uses the server key you set.
 
-### Tech stack
+---
 
-- Vanilla JS + SVG — no frontend framework
-- Node.js (`serve.mjs`) — lightweight local proxy
-- [OpenRouter](https://openrouter.ai) — free AI API (Llama 3.3)
-- [Twelve Data](https://twelvedata.com) — market quotes
-- [NewsAPI](https://newsapi.org) — financial headlines
+## Tech
+
+- Vanilla HTML/CSS/JS — no framework, no build step
+- Vercel serverless functions (`api/`) for proxying external APIs
+- Yahoo Finance for market data
+- NewsAPI for headlines
+- OpenRouter / Google Gemini / Groq for AI explanations
+
+---
+
+## API keys & privacy
+
+User-provided API keys are stored only in the browser's `localStorage` and sent only to this app's own `/api/claude` endpoint. They are never logged or stored server-side.
