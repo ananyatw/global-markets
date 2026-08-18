@@ -902,95 +902,65 @@ const LEARN_CARDS = [
   { label:'Risk', icon:'🛡️', q:'What is diversification and how do global markets help reduce investment risk?' },
 ];
 
+const PROVIDERS = [
+  { id: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-v1-... or or-...', hint: 'Free models available \u00B7 openrouter.ai/keys', keyUrl: 'https://openrouter.ai/keys' },
+  { id: 'gemini',     label: 'Gemini',     placeholder: 'AIza...',                  hint: 'Free tier \u00B7 aistudio.google.com',            keyUrl: 'https://aistudio.google.com/app/apikey' },
+  { id: 'groq',       label: 'Groq',       placeholder: 'gsk_...',                  hint: 'Free tier, very fast \u00B7 console.groq.com',   keyUrl: 'https://console.groq.com/keys' },
+];
+
 function sanitizeApiKey(raw) {
-  const v = String(raw || '')
-    .trim()
+  return String(raw || '').trim()
     .replace(/[\r\n\t]/g, '')
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/[\u2026]/g, '')
-    .replace(/[^\x20-\x7E]/g, '');
-  return v;
+    .replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2026]/g, '').replace(/[^\x20-\x7E]/g, '');
 }
 
-function saveOpenRouterKey() {
-  const input =
-    document.getElementById('openrouter-key-input') || document.getElementById('claude-key-input');
+function getLearnProvider() {
+  return localStorage.getItem('gm_provider') || 'openrouter';
+}
+
+function getLearnKey(provider) {
+  return sanitizeApiKey(localStorage.getItem(`gm_key_${provider || getLearnProvider()}`) || '');
+}
+
+function saveLearnKey() {
+  const provider = getLearnProvider();
+  const input = document.getElementById('learn-key-input');
+  const hint = document.getElementById('learn-key-hint');
   if (!input) return;
   const v = sanitizeApiKey(input.value);
   input.value = v;
-  if (v) localStorage.setItem('openrouter_key', v);
-  else localStorage.removeItem('openrouter_key');
-  const hint =
-    document.getElementById('openrouter-key-hint') || document.getElementById('claude-key-hint');
-  if (hint) {
-    hint.textContent = localStorage.getItem('openrouter_key')
-      ? 'OpenRouter key saved. Verifying...'
-      : '';
-  }
-  verifyOpenRouterKey();
+  if (v) localStorage.setItem(`gm_key_${provider}`, v);
+  else localStorage.removeItem(`gm_key_${provider}`);
+  if (hint) hint.textContent = v ? 'Key saved.' : 'Key cleared.';
 }
-window.saveClaudeKey = saveOpenRouterKey;
-window.saveOpenRouterKey = saveOpenRouterKey;
+window.saveLearnKey = saveLearnKey;
+// legacy compat
+window.saveClaudeKey = saveLearnKey;
+window.saveOpenRouterKey = saveLearnKey;
+
+function switchLearnProvider(id) {
+  localStorage.setItem('gm_provider', id);
+  renderLearn();
+}
+window.switchLearnProvider = switchLearnProvider;
 
 async function fetchClaudeExplanation(question) {
+  const provider = getLearnProvider();
+  const k = getLearnKey(provider);
   const headers = { 'Content-Type': 'application/json' };
-  const k = sanitizeApiKey(
-    localStorage.getItem('openrouter_key') ||
-      localStorage.getItem('anthropic_key') ||
-      localStorage.getItem('gm_anthropic_key'),
-  );
   if (k) headers['x-openrouter-api-key'] = k;
   const res = await fetch(apiUrl('/api/claude'), {
     method: 'POST',
     headers,
-    body: JSON.stringify({ question, apiKey: k || undefined }),
+    body: JSON.stringify({ question, apiKey: k || undefined, provider }),
   });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = j.message || j.error || `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
+  if (!res.ok) throw new Error(j.message || j.error || `HTTP ${res.status}`);
   return { text: j.text || '', modelUsed: j.modelUsed || '' };
 }
 
-async function verifyOpenRouterKey() {
-  const hint =
-    document.getElementById('openrouter-key-hint') || document.getElementById('claude-key-hint');
-  const k = sanitizeApiKey(localStorage.getItem('openrouter_key'));
-  if (!hint || !k) return;
-  try {
-    const res = await fetch(apiUrl('/api/claude'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-openrouter-api-key': k },
-      body: JSON.stringify({ question: 'Reply with exactly: OK', apiKey: k }),
-    });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(j.message || j.error || `HTTP ${res.status}`);
-    }
-    hint.textContent = j.modelUsed
-      ? `Key verified. Model: ${j.modelUsed}`
-      : 'Key verified.';
-  } catch (e) {
-    // If model routing is temporarily unavailable, still verify key via models endpoint.
-    try {
-      const verifyRes = await fetch(apiUrl('/api/openrouter-verify'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-openrouter-api-key': k },
-      body: JSON.stringify({ apiKey: k }),
-    });
-      const verifyJson = await verifyRes.json().catch(() => ({}));
-      if (verifyRes.ok && verifyJson.ok) {
-        hint.textContent = 'Key verified. Model endpoints may be temporarily busy.';
-        return;
-      }
-      throw new Error(verifyJson.message || verifyJson.error || `HTTP ${verifyRes.status}`);
-    } catch (e2) {
-      hint.textContent = `Key check failed: ${String(e2.message || e2)}`;
-    }
-  }
-}
+async function verifyOpenRouterKey() {}
 
 function renderSimpleMarkdown(text) {
   if (!text) return '';
@@ -1037,11 +1007,12 @@ function renderLearnInlineKeyPrompt() {
   const body = document.getElementById('learn-explain-body');
   if (!body) return;
   body.classList.remove('loading');
+  const provider = PROVIDERS.find(p => p.id === getLearnProvider()) || PROVIDERS[0];
   body.innerHTML = `
     <div class="learn-inline-key">
-      <p>Add your free OpenRouter key above. It stays in local storage on this browser.</p>
+      <p>Add your ${provider.label} key to use a better model. Keys are stored only in your browser. <a href="${provider.keyUrl}" target="_blank" rel="noopener" style="color:var(--blue)">${provider.hint}</a></p>
       <div class="learn-claude-row">
-        <input type="password" id="learn-inline-key-input" placeholder="or-... or sk-or-v1-..." autocomplete="off" />
+        <input type="password" id="learn-inline-key-input" placeholder="${provider.placeholder}" autocomplete="off" />
         <button type="button" onclick="submitInlineLearnKey()">Save & Retry</button>
       </div>
     </div>
@@ -1053,7 +1024,7 @@ function submitInlineLearnKey() {
   const v = sanitizeApiKey(input?.value);
   if (!v || !pendingLearnQuestion) return;
   input.value = v;
-  localStorage.setItem('openrouter_key', v);
+  localStorage.setItem(`gm_key_${getLearnProvider()}`, v);
   openLearnExplain(pendingLearnQuestion);
 }
 
@@ -1103,48 +1074,41 @@ function openLearnExplain(question) {
 function renderLearn() {
   const panel = document.getElementById('learn-panel');
   panel.innerHTML = '';
+  const activeProvider = getLearnProvider();
+  const providerMeta = PROVIDERS.find(p => p.id === activeProvider) || PROVIDERS[0];
+  const existingKey = getLearnKey(activeProvider);
 
   const setup = document.createElement('div');
   setup.className = 'learn-claude-setup';
   setup.innerHTML = `
-    <p>
-      Tap a topic to get a short explanation from <strong>OpenRouter</strong> (via your local
-      <code style="font-family:var(--mono);font-size:10px">npm start</code> proxy).
-      Keys: <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>
-      or set <code style="font-family:var(--mono);font-size:10px">OPENROUTER_API_KEY</code> when starting the server.
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+      ${PROVIDERS.map(p => `
+        <button type="button" onclick="switchLearnProvider('${p.id}')"
+          style="font-family:var(--mono);font-size:10px;padding:5px 11px;border-radius:20px;cursor:pointer;border:1px solid;transition:all 0.2s;
+            ${p.id === activeProvider
+              ? 'background:rgba(167,139,250,0.18);border-color:rgba(167,139,250,0.5);color:var(--purple)'
+              : 'background:transparent;border-color:var(--border);color:var(--muted)'}">
+          ${p.label}
+        </button>`).join('')}
+    </div>
+    <p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:8px">
+      AI explanations are powered by <strong style="color:var(--text)">${providerMeta.label}</strong>.
+      Tap any topic below — it works for everyone by default.
+      Paste your own key for a smarter model.
+      <a href="${providerMeta.keyUrl}" target="_blank" rel="noopener" style="color:var(--blue)">${providerMeta.hint}</a>
     </p>
     <div class="learn-claude-row">
-      <input type="password" id="openrouter-key-input" placeholder="or-... or sk-or-v1-... (optional if env key set)" autocomplete="off" />
-      <button type="button" id="openrouter-save-btn" onclick="saveOpenRouterKey()">Save</button>
+      <input type="password" id="learn-key-input" placeholder="${existingKey ? '(key on file — re-enter to replace)' : providerMeta.placeholder}" autocomplete="off" />
+      <button type="button" onclick="saveLearnKey()">${existingKey ? 'Update' : 'Save'}</button>
     </div>
-    <p id="openrouter-key-hint" style="font-size:10px;color:var(--faint);margin-top:6px;margin-bottom:0"></p>
+    <p id="learn-key-hint" style="font-size:10px;color:var(--faint);margin-top:6px;margin-bottom:0">
+      ${existingKey ? 'Your key is saved in this browser only.' : ''}
+    </p>
   `;
   panel.appendChild(setup);
 
-  const hint = setup.querySelector('#openrouter-key-hint');
-  const saveBtn = setup.querySelector('#openrouter-save-btn');
-  const keyInput = setup.querySelector('#openrouter-key-input');
-  if (saveBtn) saveBtn.addEventListener('click', saveOpenRouterKey);
-  if (keyInput) {
-    keyInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') saveOpenRouterKey();
-    });
-  }
-  if (
-    localStorage.getItem('openrouter_key') ||
-    localStorage.getItem('anthropic_key') ||
-    localStorage.getItem('gm_anthropic_key')
-  ) {
-    if (!localStorage.getItem('openrouter_key') && localStorage.getItem('anthropic_key')) {
-      localStorage.setItem('openrouter_key', localStorage.getItem('anthropic_key'));
-    } else if (!localStorage.getItem('openrouter_key') && localStorage.getItem('gm_anthropic_key')) {
-      localStorage.setItem('openrouter_key', localStorage.getItem('gm_anthropic_key'));
-    }
-  }
-  if (localStorage.getItem('openrouter_key') && hint) {
-    hint.textContent = 'A browser-stored key is on file (re-enter to replace).';
-    verifyOpenRouterKey();
-  }
+  const keyInput = setup.querySelector('#learn-key-input');
+  if (keyInput) keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveLearnKey(); });
 
   LEARN_CARDS.forEach((card) => {
     const div = document.createElement('div');
