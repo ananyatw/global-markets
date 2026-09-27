@@ -1,0 +1,1505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Global Markets</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #07080f;
+    --bg2: #0d1020;
+    --bg3: #13182e;
+    --border: rgba(255,255,255,0.07);
+    --text: #e8eaf2;
+    --muted: rgba(232,234,242,0.45);
+    --faint: rgba(232,234,242,0.15);
+    --green: #00e5a0;
+    --red: #ff4d6a;
+    --amber: #f5a623;
+    --blue: #4d9fff;
+    --purple: #a78bfa;
+    --mono: 'Space Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Layout ── */
+  .app { display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
+
+  /* ── Navbar ── */
+  nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    z-index: 100;
+  }
+  .nav-brand { font-family: var(--mono); font-size: 13px; letter-spacing: 2px; color: var(--green); text-transform: uppercase; }
+  .nav-right { display: flex; align-items: center; gap: 20px; }
+  #utc-clock { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .api-badge {
+    font-family: var(--mono); font-size: 10px; padding: 3px 8px;
+    border: 1px solid var(--border); border-radius: 4px; color: var(--muted);
+  }
+  #api-status { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); display: inline-block; margin-right: 6px; transition: background 0.4s; }
+  #api-status.live { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  #api-status.error { background: var(--red); }
+
+  /* ── Main layout ── */
+  .main { display: grid; grid-template-columns: 1fr 360px; height: 100%; overflow: hidden; }
+
+  /* ── Map (stylized SVG) ── */
+  #map-wrap { position: relative; overflow: hidden; background: var(--bg); }
+  #map-svg { width: 100%; height: 100%; display: block; }
+
+  .continent { fill: #0e1830; stroke: #1a2545; stroke-width: 0.6; }
+
+  .market-pin { cursor: pointer; }
+  .market-pin .hit-area { fill: transparent; }
+  .market-pin circle.outer { transition: r 0.2s, opacity 0.2s; }
+  .market-pin:hover circle.outer { r: 11 !important; }
+  .market-pin.selected circle.outer { stroke: var(--blue); stroke-width: 2.3; }
+  .market-pin.selected circle.inner-dot { fill: var(--blue); }
+  .market-pin text {
+    font-family: var(--sans);
+    font-size: 10px;
+    fill: #e2e8f0;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.2s ease;
+  }
+  .market-city-label {
+    fill: #e2e8f0;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    opacity: 1;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+  }
+  .market-city-label.cluster-label { opacity: 0; }
+  .market-city-label.cluster-label.visible { opacity: 1; }
+
+  @keyframes pulse {
+    0%,100% { opacity: 0.5; transform: scale(1); }
+    50% { opacity: 0; transform: scale(2.2); }
+  }
+  .pulse { animation: pulse 2.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+
+  /* ── Tooltip ── */
+  #tooltip {
+    position: absolute; pointer-events: none; z-index: 1000;
+    background: rgba(13,16,32,0.97);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px; padding: 14px 16px; width: 230px;
+    opacity: 0; transition: opacity 0.15s;
+    backdrop-filter: blur(8px);
+  }
+  #tooltip.show { opacity: 1; }
+  .tt-name { font-family: var(--mono); font-size: 13px; margin-bottom: 3px; }
+  .tt-status { font-size: 11px; margin-bottom: 10px; }
+  .tt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tt-cell { background: rgba(255,255,255,0.04); border-radius: 6px; padding: 8px; }
+  .tt-cell-label { font-size: 10px; color: var(--muted); margin-bottom: 3px; font-family: var(--mono); }
+  .tt-cell-val { font-size: 13px; font-weight: 500; }
+  .tt-hint { font-size: 10px; color: var(--faint); margin-top: 10px; text-align: center; }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--bg2);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-tabs {
+    display: flex; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab {
+    flex: 1; padding: 12px 8px; font-size: 11px;
+    font-family: var(--mono); letter-spacing: 1px; text-transform: uppercase;
+    color: var(--muted); cursor: pointer; text-align: center;
+    border-bottom: 2px solid transparent; transition: all 0.2s;
+  }
+  .tab.active { color: var(--green); border-bottom-color: var(--green); }
+
+  .tab-panel { display: none; flex: 1; overflow-y: auto; }
+  .tab-panel.active { display: flex; flex-direction: column; }
+
+  /* ── Markets list ── */
+  #markets-panel { padding: 12px; gap: 8px; }
+
+  .mkt-row {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px;
+    cursor: pointer; transition: border-color 0.2s, background 0.2s;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .mkt-row:hover { border-color: rgba(255,255,255,0.18); background: #161c35; }
+  .mkt-row-top { display: flex; justify-content: space-between; align-items: flex-start; }
+  .mkt-name { font-size: 13px; font-weight: 500; }
+  .mkt-city { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .mkt-status-pill {
+    font-family: var(--mono); font-size: 9px; padding: 2px 7px;
+    border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .pill-open { background: rgba(0,229,160,0.12); color: var(--green); }
+  .pill-closed { background: rgba(255,255,255,0.05); color: var(--muted); }
+  .pill-pre { background: rgba(245,166,35,0.12); color: var(--amber); }
+  .mkt-row-bot { display: flex; justify-content: space-between; align-items: center; }
+  .mkt-index { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .mkt-val { font-family: var(--mono); font-size: 13px; }
+  .mkt-chg { font-family: var(--mono); font-size: 12px; }
+  .up { color: var(--green); }
+  .dn { color: var(--red); }
+  .loading-text { color: var(--muted); font-family: var(--mono); font-size: 11px; text-align: center; padding: 20px; animation: blink 1.2s infinite; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* ── Learn panel ── */
+  #learn-panel { padding: 16px; gap: 10px; }
+  .learn-card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px;
+    cursor: pointer; transition: border-color 0.2s;
+  }
+  .learn-card:hover { border-color: rgba(167,139,250,0.4); }
+  .learn-card-label { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--purple); margin-bottom: 6px; }
+  .learn-card-q { font-size: 13px; line-height: 1.5; }
+  .learn-card-icon { font-size: 18px; margin-bottom: 8px; }
+
+  .learn-claude-setup {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 12px;
+    flex-shrink: 0;
+  }
+  .learn-claude-setup p {
+    font-size: 11px; color: var(--muted); line-height: 1.45; margin-bottom: 8px;
+  }
+  .learn-claude-setup a { color: var(--blue); }
+  .learn-claude-row { display: flex; gap: 8px; align-items: center; }
+  .learn-claude-setup input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; color: var(--text);
+    font-family: var(--mono); font-size: 11px; outline: none;
+  }
+  .learn-claude-setup input:focus { border-color: var(--purple); }
+  .learn-claude-setup button {
+    font-family: var(--mono); font-size: 10px; padding: 8px 12px;
+    background: rgba(167,139,250,0.15); border: 1px solid rgba(167,139,250,0.35);
+    color: var(--purple); border-radius: 6px; cursor: pointer; white-space: nowrap;
+  }
+  .learn-claude-setup button:hover { background: rgba(167,139,250,0.22); }
+
+  .learn-explain-backdrop {
+    position: fixed; inset: 0; z-index: 1100;
+    background: rgba(7,8,15,0.88); backdrop-filter: blur(6px);
+    display: none; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .learn-explain-backdrop.show { display: flex; }
+  .learn-explain-modal {
+    background: var(--bg2); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px; max-width: 560px; width: 100%; max-height: 85vh;
+    overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+  }
+  .learn-explain-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 12px; padding: 18px 18px 0;
+  }
+  .learn-explain-q {
+    font-size: 14px; line-height: 1.45; font-weight: 500; color: var(--text);
+    flex: 1;
+  }
+  .learn-explain-close {
+    background: transparent; border: none; color: var(--muted);
+    font-size: 22px; line-height: 1; cursor: pointer; padding: 4px 8px;
+    border-radius: 6px; flex-shrink: 0;
+  }
+  .learn-explain-close:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  .learn-explain-body {
+    padding: 14px 18px 20px; overflow-y: auto;
+    font-size: 13px; line-height: 1.6; color: rgba(232,234,242,0.88);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .learn-explain-body.loading { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  .learn-explain-err {
+    padding: 10px 18px 12px;
+    font-size: 12px;
+    line-height: 1.45;
+    background: rgba(239, 68, 68, 0.1);
+    border-left: 3px solid #ef4444;
+    color: #fca5a5;
+  }
+  .learn-explain-err.info {
+    background: rgba(0, 229, 160, 0.08);
+    border-left-color: #00e5a0;
+    color: #6ee7b7;
+  }
+
+  .nav-index-toggle {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  .nav-index-toggle input { accent-color: var(--green); cursor: pointer; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+  .api-note { font-size: 11px; color: var(--faint); margin-top: 12px; line-height: 1.5; }
+
+  /* ── News panel ── */
+  #news-panel { padding: 12px; gap: 10px; flex-direction: column; background: #0d1117; }
+  .news-toolbar {
+    display: flex; flex-direction: column; gap: 10px;
+    flex-shrink: 0; margin-bottom: 4px;
+  }
+  .news-tab-strip {
+    display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .news-tab-strip::-webkit-scrollbar { display: none; }
+  .news-tab-btn {
+    background: transparent; border: none; color: var(--muted);
+    padding: 8px 2px; font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.8px; text-transform: uppercase; cursor: pointer;
+    border-bottom: 2px solid transparent; white-space: nowrap;
+  }
+  .news-tab-btn.active { color: var(--green); border-bottom-color: var(--green); }
+  .news-toolbar-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .news-refresh {
+    font-family: var(--mono); font-size: 11px; padding: 8px 12px;
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 7px;
+    color: var(--text); cursor: pointer; white-space: nowrap;
+  }
+  .news-refresh:hover { border-color: var(--blue); color: var(--blue); }
+  .news-filter-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(0,229,160,0.12); border: 1px solid rgba(0,229,160,0.35);
+    border-radius: 999px; padding: 6px 10px; font-family: var(--mono);
+    font-size: 10px; color: var(--green);
+  }
+  .news-filter-chip button {
+    border: none; background: transparent; color: var(--green);
+    cursor: pointer; font-size: 14px; line-height: 1;
+  }
+  .news-banner {
+    font-size: 11px; color: var(--amber); background: rgba(245,166,35,0.08);
+    border: 1px solid rgba(245,166,35,0.25); border-radius: 7px;
+    padding: 8px 10px; line-height: 1.45; margin-bottom: 6px;
+  }
+  .news-banner a { color: var(--blue); }
+  .news-meta-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+  }
+  .news-live { display: inline-flex; align-items: center; gap: 6px; }
+  .news-live-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 10px rgba(0,229,160,0.7);
+    animation: livePulse 1.4s ease-in-out infinite;
+  }
+  .news-live-dot.off {
+    animation: none; background: rgba(232,234,242,0.25); box-shadow: none;
+  }
+  @keyframes livePulse {
+    0%,100% { transform: scale(1); opacity: 0.9; }
+    50% { transform: scale(1.28); opacity: 0.5; }
+  }
+  .news-list { display: flex; flex-direction: column; gap: 8px; }
+  .news-list.updating .news-card { opacity: 0; transform: translateY(6px); }
+  .news-card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, opacity 0.2s, transform 0.24s;
+    text-decoration: none; color: inherit;
+    display: block; text-align: left;
+    opacity: 0; transform: translateX(16px);
+    animation: cardIn 280ms ease forwards;
+  }
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateX(18px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .news-card.hero {
+    border-left: 4px solid var(--muted);
+    padding: 14px 14px 13px 12px;
+    animation: cardIn 300ms ease forwards, heroPulse 1200ms ease 1;
+  }
+  .news-card.hero.up { border-left-color: var(--green); }
+  .news-card.hero.dn { border-left-color: var(--red); }
+  .news-card.hero.neutral { border-left-color: rgba(232,234,242,0.3); }
+  @keyframes heroPulse {
+    0% { box-shadow: 0 0 0 rgba(0,229,160,0); }
+    50% { box-shadow: 0 0 0 8px rgba(0,229,160,0.07); }
+    100% { box-shadow: 0 0 0 rgba(0,229,160,0); }
+  }
+  .news-card.standard { padding: 11px 13px; }
+  .news-card.compact {
+    padding: 10px 12px; background: rgba(255,255,255,0.025);
+    border-color: rgba(255,255,255,0.06);
+  }
+  .news-card:hover { border-color: rgba(77,159,255,0.35); background: #161c35; }
+  .news-card-title { font-size: 13px; font-weight: 500; line-height: 1.4; margin-bottom: 6px; }
+  .news-card.hero .news-card-title { font-size: 15px; line-height: 1.5; margin-bottom: 8px; }
+  .news-card.compact .news-card-title { font-size: 12px; margin-bottom: 0; opacity: 0.84; }
+  .news-card-meta {
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  }
+  .news-card-snip { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+  .news-card.hero .news-card-snip {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .news-cat-pill {
+    display: inline-flex; align-items: center;
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.4px;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 7px; color: rgba(232,234,242,0.8); margin-bottom: 8px;
+  }
+  .news-source-badge {
+    width: 26px; height: 26px; border-radius: 7px; background: rgba(255,255,255,0.06);
+    color: var(--muted); font-family: var(--mono); font-size: 9px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .news-empty { font-size: 12px; color: var(--muted); text-align: center; padding: 24px 12px; }
+
+  .learn-skeleton { display: grid; gap: 8px; margin-top: 2px; }
+  .learn-skeleton-line {
+    height: 10px; border-radius: 8px; background: rgba(232,234,242,0.09);
+    position: relative; overflow: hidden;
+  }
+  .learn-skeleton-line::after {
+    content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(232,234,242,0.17), transparent);
+    animation: skeletonMove 1.2s infinite;
+  }
+  .learn-skeleton-line:nth-child(1) { width: 94%; }
+  .learn-skeleton-line:nth-child(2) { width: 88%; }
+  .learn-skeleton-line:nth-child(3) { width: 76%; }
+  @keyframes skeletonMove { 100% { transform: translateX(100%); } }
+
+  .learn-inline-key {
+    margin-top: 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: rgba(167,139,250,0.07); padding: 10px;
+  }
+  .learn-inline-key p { font-size: 11px; margin-bottom: 8px; color: rgba(232,234,242,0.82); }
+  .learn-inline-key .learn-claude-row { margin-top: 2px; }
+
+  @media (max-width: 900px) {
+    .app { grid-template-rows: 52px 1fr; height: auto; min-height: 100vh; }
+    .main { grid-template-columns: 1fr; height: auto; }
+    #map-wrap { min-height: 360px; height: 52vh; }
+    .sidebar { min-height: 50vh; border-left: none; border-top: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Navbar -->
+  <nav>
+    <div class="nav-brand">◈ Global Markets</div>
+    <div class="nav-right">
+      <span><span id="api-status"></span><span id="api-status-label" style="font-size:11px;font-family:var(--mono);color:var(--muted)">connecting</span></span>
+      <label class="nav-index-toggle" title="Use Twelve Data index tickers (typically needs a paid plan). ETF proxies when off.">
+        <input type="checkbox" id="use-index-symbols" />
+        indices
+      </label>
+      <span id="utc-clock">--:--:-- UTC</span>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Map -->
+    <div id="map-wrap">
+      <svg id="map-svg" viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg" aria-label="World markets map">
+        <path class="continent" d="M82,62 L242,58 L262,98 L252,165 L232,205 L202,232 L172,262 L142,282 L122,262 L102,222 L82,182 L62,142 Z"/>
+        <path class="continent" d="M172,262 L192,272 L187,302 L172,312 L162,292 Z"/>
+        <path class="continent" d="M192,302 L242,292 L262,322 L257,382 L237,422 L202,432 L177,412 L167,372 L172,332 L187,307 Z"/>
+        <path class="continent" d="M372,48 L452,48 L462,82 L452,112 L432,122 L412,117 L392,122 L377,112 L367,82 Z"/>
+        <path class="continent" d="M382,132 L442,127 L462,152 L467,222 L452,282 L432,322 L402,332 L377,312 L362,262 L357,202 L367,162 Z"/>
+        <path class="continent" d="M452,108 L512,103 L522,142 L502,162 L472,157 L457,137 Z"/>
+        <path class="continent" d="M452,28 L702,28 L722,68 L702,102 L652,112 L602,102 L552,112 L502,102 L472,82 L462,57 Z"/>
+        <path class="continent" d="M522,108 L582,103 L602,132 L597,172 L572,187 L547,177 L527,152 Z"/>
+        <path class="continent" d="M642,58 L762,53 L782,88 L772,142 L742,162 L702,157 L672,142 L652,112 L642,82 Z"/>
+        <path class="continent" d="M682,167 L742,162 L762,192 L742,217 L712,212 L692,192 Z"/>
+        <path class="continent" d="M712,282 L812,272 L832,312 L822,362 L792,382 L752,377 L722,352 L707,317 Z"/>
+        <path class="continent" d="M820,80 L870,82 L875,120 L855,145 L825,140 L810,110 Z"/>
+        <g id="pins"></g>
+        <g id="pin-labels"></g>
+      </svg>
+      <div id="tooltip"></div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-tabs">
+        <div class="tab active" onclick="switchTab('markets')">Markets</div>
+        <div class="tab" onclick="switchTab('news')">News</div>
+        <div class="tab" onclick="switchTab('learn')">Learn</div>
+      </div>
+
+      <div class="tab-panel active" id="markets-panel">
+        <div class="loading-text" id="list-loading">fetching quotes...</div>
+      </div>
+
+      <div class="tab-panel" id="news-panel">
+        <div class="news-toolbar">
+          <div class="news-tab-strip" id="news-tab-strip"></div>
+          <div class="news-toolbar-row">
+            <div class="news-meta-row">
+              <span id="news-source-label">NEWS FEED</span>
+              <span class="news-live"><span id="news-live-dot" class="news-live-dot off"></span><span id="news-live-label">stale</span></span>
+            </div>
+            <button type="button" class="news-refresh" id="news-refresh" onclick="loadNews(true)">Refresh</button>
+          </div>
+        </div>
+        <div id="news-filter-wrap"></div>
+        <div id="news-banner-wrap"></div>
+        <div class="news-list" id="news-list">
+          <div class="loading-text" id="news-loading">open News tab to load headlines…</div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="learn-panel">
+        <!-- Filled by JS -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Learn: OpenRouter explanation -->
+<div id="learn-explain-backdrop" class="learn-explain-backdrop" aria-hidden="true" onclick="closeLearnExplain()">
+  <div class="learn-explain-modal" role="dialog" aria-modal="true" aria-labelledby="learn-explain-qtext" onclick="event.stopPropagation()">
+    <div class="learn-explain-head">
+      <div id="learn-explain-qtext" class="learn-explain-q"></div>
+      <button type="button" class="learn-explain-close" onclick="closeLearnExplain()" aria-label="Close">×</button>
+    </div>
+    <div id="learn-explain-body" class="learn-explain-body"></div>
+    <div id="learn-explain-err" class="learn-explain-err"></div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────
+// MARKET DEFINITIONS
+// ─────────────────────────────────────────
+// symbol = ETF proxy (works well on Twelve Data free tier)
+// indexSymbol = benchmark index ticker for paid / pro plans (verify on Twelve Data for your account)
+const MARKETS = [
+  { id:'nyse',     name:'NYSE / NASDAQ', city:'New York',        tz:'America/New_York',       open:9.5,  close:16,   cx:175, cy:178, symbol:'SPY',  indexSymbol:'SPX',    label:'S&P 500',  cap:'$46T' },
+  { id:'bmv',      name:'BMV',           city:'Mexico City',      tz:'America/Mexico_City',    open:8.5,  close:15,   cx:150, cy:225, symbol:'EWW',  indexSymbol:'BMV',    label:'BMV',      cap:'$0.4T' },
+  { id:'lse',      name:'London SE',     city:'London',          tz:'Europe/London',           open:8,    close:16.5, cx:395, cy:78,  symbol:'EWU',  indexSymbol:'FTSE',   label:'FTSE 100', cap:'$3.8T' },
+  { id:'ams',      name:'Euronext AMS',  city:'Amsterdam',        tz:'Europe/Amsterdam',        open:9,    close:17.5, cx:410, cy:72,  symbol:'EWN',  indexSymbol:'AEX',    label:'AEX',      cap:'$1.0T' },
+  { id:'fwb',      name:'Frankfurt',     city:'Frankfurt',       tz:'Europe/Berlin',           open:9,    close:17.5, cx:428, cy:70,  symbol:'EWG',  indexSymbol:'DAX',    label:'DAX',      cap:'$2.4T' },
+  { id:'six',      name:'SIX Swiss',     city:'Zurich',           tz:'Europe/Zurich',           open:9,    close:17.5, cx:420, cy:90,  symbol:'EWL',  indexSymbol:'SMI',    label:'SMI',      cap:'$1.8T' },
+  { id:'euronext', name:'Euronext',      city:'Paris',           tz:'Europe/Paris',            open:9,    close:17.5, cx:412, cy:82,  symbol:'EWQ',  indexSymbol:'CAC40',  label:'CAC 40',   cap:'$5.6T' },
+  { id:'dfm',      name:'Dubai FM',      city:'Dubai',            tz:'Asia/Dubai',              open:10,   close:15,   cx:548, cy:145, symbol:'UAE',  indexSymbol:'DFM',    label:'DFM',      cap:'$0.2T' },
+  { id:'sse',      name:'Shanghai SE',   city:'Shanghai',        tz:'Asia/Shanghai',           open:9.5,  close:15,   cx:718, cy:118, symbol:'FXI',  indexSymbol:'SSEC',   label:'SSE Comp', cap:'$7.1T' },
+  { id:'szse',     name:'Shenzhen SE',   city:'Shenzhen',         tz:'Asia/Shanghai',           open:9.5,  close:15,   cx:722, cy:140, symbol:'ASHR', indexSymbol:'SZSE',   label:'SZSE',     cap:'$5.0T' },
+  { id:'hkex',     name:'HKEX',          city:'Hong Kong',       tz:'Asia/Hong_Kong',          open:9.5,  close:16,   cx:732, cy:148, symbol:'EWH',  indexSymbol:'HSI',    label:'Hang Seng',cap:'$3.9T' },
+  { id:'sgx',      name:'SGX',           city:'Singapore',        tz:'Asia/Singapore',          open:9,    close:17,   cx:690, cy:214, symbol:'EWS',  indexSymbol:'STI',    label:'STI',      cap:'$0.6T' },
+  { id:'twse',     name:'Taipei EX',     city:'Taipei',           tz:'Asia/Taipei',             open:9,    close:13.5, cx:741, cy:135, symbol:'EWT',  indexSymbol:'TAIEX',  label:'TAIEX',    cap:'$1.9T' },
+  { id:'krx',      name:'KRX',           city:'Seoul',            tz:'Asia/Seoul',              open:9,    close:15.5, cx:748, cy:123, symbol:'EWY',  indexSymbol:'KOSPI',  label:'KOSPI',    cap:'$2.1T' },
+  { id:'tse',      name:'Tokyo SE',      city:'Tokyo',           tz:'Asia/Tokyo',              open:9,    close:15.5, cx:772, cy:118, symbol:'EWJ',  indexSymbol:'NI225',  label:'Nikkei',   cap:'$6.3T' },
+  { id:'bse',      name:'BSE / NSE',     city:'Mumbai',          tz:'Asia/Kolkata',            open:9.25, close:15.5, cx:555, cy:158, symbol:'INDA', indexSymbol:'SENSEX', label:'SENSEX',   cap:'$4.6T' },
+  { id:'asx',      name:'ASX',           city:'Sydney',          tz:'Australia/Sydney',        open:10,   close:16,   cx:775, cy:338, symbol:'EWA',  indexSymbol:'XJO',    label:'ASX 200',  cap:'$1.8T' },
+  { id:'tadawul',  name:'Tadawul',       city:'Riyadh',          tz:'Asia/Riyadh',             open:10,   close:15,   cx:503, cy:133, symbol:'KSA',  indexSymbol:'TASI',   label:'TASI',     cap:'$2.9T' },
+  { id:'tsx',      name:'TSX',           city:'Toronto',         tz:'America/Toronto',         open:9.5,  close:16,   cx:182, cy:143, symbol:'EWC',  indexSymbol:'GSPTSE', label:'TSX Comp', cap:'$3.2T' },
+  { id:'bovespa',  name:'B3 / Bovespa',  city:'São Paulo',       tz:'America/Sao_Paulo',       open:10,   close:17,   cx:228, cy:358, symbol:'EWZ',  indexSymbol:'BVSP',   label:'Ibovespa', cap:'$0.8T' },
+  { id:'jse',      name:'JSE',           city:'Johannesburg',    tz:'Africa/Johannesburg',     open:9,    close:17,   cx:436, cy:308, symbol:'EZA',  indexSymbol:'JTOPI',  label:'JSE Top40',cap:'$1.1T' },
+  { id:'asx2',     name:'NZX',           city:'Auckland',        tz:'Pacific/Auckland',        open:10,   close:17,   cx:848, cy:388, symbol:'ENZL', indexSymbol:'NZ50',   label:'NZX 50',   cap:'$0.1T' },
+];
+
+const NEWS_TAB_CONFIG = {
+  GLOBAL: { mode: 'topic', q: 'global stock market' },
+  US: { mode: 'country', country: 'us' },
+  EU: { mode: 'topic', q: 'europe stock market stoxx dax ftse' },
+  ASIA: { mode: 'topic', q: 'asia stock market nikkei hang seng shanghai' },
+  INDIA: { mode: 'country', country: 'in' },
+  CRYPTO: { mode: 'topic', q: 'crypto bitcoin ethereum regulation market' },
+};
+
+const MARKET_TO_TAB = {
+  nyse: 'US',
+  tsx: 'US',
+  bmv: 'US',
+  lse: 'EU',
+  ams: 'EU',
+  fwb: 'EU',
+  six: 'EU',
+  euronext: 'EU',
+  sse: 'ASIA',
+  szse: 'ASIA',
+  hkex: 'ASIA',
+  sgx: 'ASIA',
+  twse: 'ASIA',
+  krx: 'ASIA',
+  tse: 'ASIA',
+  asx: 'ASIA',
+  asx2: 'ASIA',
+  bse: 'INDIA',
+  dfm: 'ASIA',
+  tadawul: 'ASIA',
+  bovespa: 'GLOBAL',
+  jse: 'GLOBAL',
+};
+
+const TIER1_MARKETS = new Set(['nyse', 'lse', 'tse', 'sse']);
+const CLUSTER_LABEL_IDS = new Set([
+  'lse', 'euronext', 'fwb', 'ams', 'six',
+  'sse', 'krx', 'szse', 'hkex', 'twse',
+]);
+const LABEL_POS = {
+  // Europe cluster (requested)
+  lse: { dx: -8, dy: 0, anchor: 'end' },      // London left
+  euronext: { dx: -8, dy: 16, anchor: 'end' },// Paris below-left
+  fwb: { dx: 8, dy: 0, anchor: 'start' },     // Frankfurt right
+  ams: { dx: 0, dy: -8, anchor: 'middle' },   // Amsterdam above
+  six: { dx: 8, dy: 16, anchor: 'start' },    // Zurich below-right
+  // East Asia cluster
+  sse: { dx: -10, dy: -8, anchor: 'end' },
+  krx: { dx: 10, dy: -6, anchor: 'start' },
+  szse: { dx: 10, dy: 12, anchor: 'start' },
+  hkex: { dx: 8, dy: 18, anchor: 'start' },
+  twse: { dx: -10, dy: 8, anchor: 'end' },
+};
+
+function useIndexMode() {
+  return localStorage.getItem('gm_use_index_symbols') === '1';
+}
+
+function quoteSym(m) {
+  return useIndexMode() && m.indexSymbol ? m.indexSymbol : m.symbol;
+}
+
+// Demo data fallback (realistic values)
+const DEMO = {
+  SPY:  { close:'519.84', percent_change:'0.82',  previous_close:'515.62' },
+  EWW:  { close:'67.42',  percent_change:'0.35',  previous_close:'67.19' },
+  EWU:  { close:'36.41',  percent_change:'-0.31', previous_close:'36.52' },
+  EWN:  { close:'49.10',  percent_change:'0.28',  previous_close:'48.96' },
+  EWG:  { close:'32.18',  percent_change:'0.55',  previous_close:'32.00' },
+  EWL:  { close:'51.73',  percent_change:'0.19',  previous_close:'51.63' },
+  EWQ:  { close:'28.74',  percent_change:'0.17',  previous_close:'28.69' },
+  UAE:  { close:'16.02',  percent_change:'-0.21', previous_close:'16.05' },
+  FXI:  { close:'30.12',  percent_change:'-0.28', previous_close:'30.21' },
+  ASHR: { close:'24.84',  percent_change:'0.48',  previous_close:'24.72' },
+  EWH:  { close:'19.88',  percent_change:'0.63',  previous_close:'19.75' },
+  EWS:  { close:'21.96',  percent_change:'0.33',  previous_close:'21.89' },
+  EWT:  { close:'52.41',  percent_change:'0.92',  previous_close:'51.93' },
+  EWY:  { close:'67.12',  percent_change:'0.61',  previous_close:'66.71' },
+  EWJ:  { close:'68.44',  percent_change:'1.08',  previous_close:'67.71' },
+  INDA: { close:'46.22',  percent_change:'1.12',  previous_close:'45.71' },
+  EWA:  { close:'24.18',  percent_change:'0.22',  previous_close:'24.13' },
+  KSA:  { close:'44.90',  percent_change:'-0.44', previous_close:'45.10' },
+  EWC:  { close:'37.55',  percent_change:'0.44',  previous_close:'37.39' },
+  EWZ:  { close:'28.33',  percent_change:'-0.53', previous_close:'28.48' },
+  EZA:  { close:'39.12',  percent_change:'0.76',  previous_close:'38.83' },
+  ENZL: { close:'36.00',  percent_change:'0.10',  previous_close:'35.96' },
+};
+
+MARKETS.forEach((m) => {
+  if (m.indexSymbol && DEMO[m.symbol]) {
+    DEMO[m.indexSymbol] = DEMO[m.symbol];
+  }
+});
+
+// ─────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────
+let quoteData = {};
+let activeTab = 'markets';
+let isDemoMode = false;
+let selectedMarketId = null;
+let activeNewsTab = 'GLOBAL';
+let lastNewsFetchAt = 0;
+let latestNewsRequestId = 0;
+let pendingLearnQuestion = '';
+
+function clearClusterHoverLabels() {
+  document.querySelectorAll('.market-city-label.cluster-label.visible').forEach((el) => {
+    el.classList.remove('visible');
+    const x = el.dataset.baseX;
+    const y = el.dataset.baseY;
+    const anchor = el.dataset.baseAnchor;
+    if (x) el.setAttribute('x', x);
+    if (y) el.setAttribute('y', y);
+    if (anchor) el.setAttribute('text-anchor', anchor);
+  });
+}
+
+// ─────────────────────────────────────────
+// MARKET STATUS
+// ─────────────────────────────────────────
+function getStatus(m) {
+  const now = new Date();
+  const day = now.toLocaleDateString('en-US', { weekday: 'short', timeZone: m.tz });
+  if (day === 'Sat' || day === 'Sun') return 'weekend';
+  const t = now.toLocaleTimeString('en-GB', { timeZone: m.tz, hour: '2-digit', minute: '2-digit', hour12: false });
+  const [h, min] = t.split(':').map(Number);
+  const dec = h + min / 60;
+  if (dec >= m.open && dec < m.close) return 'open';
+  if (dec >= m.open - 0.75 && dec < m.open) return 'pre';
+  return 'closed';
+}
+
+function statusColor(s) {
+  return { open:'#00e5a0', pre:'#f5a623', closed:'#3a4060', weekend:'#2a1f50' }[s] || '#3a4060';
+}
+function statusLabel(s) {
+  return { open:'● Open', pre:'◑ Pre-market', closed:'○ Closed', weekend:'○ Weekend' }[s] || '○ Closed';
+}
+function statusPillClass(s) {
+  return s === 'open' ? 'pill-open' : s === 'pre' ? 'pill-pre' : 'pill-closed';
+}
+
+// ─────────────────────────────────────────
+// RENDER MAP PINS
+// ─────────────────────────────────────────
+function renderPins() {
+  const g = document.getElementById('pins');
+  const labelLayer = document.getElementById('pin-labels');
+  if (!g || !labelLayer) return;
+  g.innerHTML = '';
+  labelLayer.innerHTML = '';
+
+  MARKETS.forEach((m) => {
+    const s = getStatus(m);
+    const col = statusColor(s);
+    const q = quoteData[quoteSym(m)] || {};
+    const isOpen = s === 'open';
+    const isTier1 = TIER1_MARKETS.has(m.id);
+    const placement = LABEL_POS[m.id] || { dx: 0, dy: 20, anchor: 'middle' };
+
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('class', 'market-pin');
+    group.setAttribute('data-id', m.id);
+    if (m.id === selectedMarketId) group.classList.add('selected');
+
+    // Larger invisible target improves hover reliability in dense clusters.
+    const hit = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    hit.setAttribute('cx', m.cx);
+    hit.setAttribute('cy', m.cy);
+    hit.setAttribute('r', isTier1 ? '14' : '12');
+    hit.setAttribute('class', 'hit-area');
+    group.appendChild(hit);
+
+    if (isOpen) {
+      const pulse = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      pulse.setAttribute('cx', m.cx);
+      pulse.setAttribute('cy', m.cy);
+      pulse.setAttribute('r', '10');
+      pulse.setAttribute('fill', col);
+      pulse.setAttribute('opacity', '0.35');
+      pulse.setAttribute('class', 'pulse');
+      group.appendChild(pulse);
+    }
+
+    const outer = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    outer.setAttribute('cx', m.cx);
+    outer.setAttribute('cy', m.cy);
+    outer.setAttribute('r', '8');
+    outer.setAttribute('class', 'outer');
+    outer.setAttribute('fill', 'rgba(13,16,32,0.8)');
+    outer.setAttribute('stroke', col);
+    outer.setAttribute('stroke-width', '1.5');
+    group.appendChild(outer);
+
+    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    dot.setAttribute('cx', m.cx);
+    dot.setAttribute('cy', m.cy);
+    dot.setAttribute('r', isTier1 ? '6' : '4');
+    dot.setAttribute('fill', col);
+    dot.setAttribute('class', 'inner-dot');
+    group.appendChild(dot);
+
+    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    const baseX = m.cx + placement.dx;
+    const baseY = m.cy + placement.dy;
+    txt.setAttribute('x', String(baseX));
+    txt.setAttribute('y', String(baseY));
+    txt.setAttribute('text-anchor', placement.anchor);
+    txt.setAttribute('font-size', '10');
+    txt.setAttribute('class', 'market-city-label');
+    if (CLUSTER_LABEL_IDS.has(m.id) && !isTier1) {
+      txt.classList.add('cluster-label');
+    }
+    txt.dataset.baseX = String(baseX);
+    txt.dataset.baseY = String(baseY);
+    txt.dataset.baseAnchor = placement.anchor;
+    txt.textContent = m.city;
+    labelLayer.appendChild(txt);
+
+    group.addEventListener('mouseenter', (e) => {
+      // Bring hovered group to front so its hover label stays above nearby pins.
+      g.appendChild(group);
+      if (CLUSTER_LABEL_IDS.has(m.id) && !isTier1) {
+        clearClusterHoverLabels();
+        txt.setAttribute('x', String(m.cx));
+        txt.setAttribute('y', String(m.cy - 10));
+        txt.setAttribute('text-anchor', 'middle');
+        txt.classList.add('visible');
+      }
+      showTooltip(m, s, q, e);
+    });
+    group.addEventListener('mousemove', (e) => moveTooltip(e));
+    group.addEventListener('mouseleave', () => {
+      hideTooltip();
+      if (CLUSTER_LABEL_IDS.has(m.id) && !isTier1) {
+        txt.setAttribute('x', txt.dataset.baseX || String(baseX));
+        txt.setAttribute('y', txt.dataset.baseY || String(baseY));
+        txt.setAttribute('text-anchor', txt.dataset.baseAnchor || placement.anchor);
+        txt.classList.remove('visible');
+      }
+    });
+    group.addEventListener('click', () => handleMarketPinClick(m.id));
+
+    g.appendChild(group);
+  });
+}
+
+// ─────────────────────────────────────────
+// TOOLTIP
+// ─────────────────────────────────────────
+const tt = document.getElementById('tooltip');
+
+function showTooltip(m, s, q, e) {
+  const pct = parseFloat(q.percent_change || 0);
+  const pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+  const pctCol = pct >= 0 ? 'var(--green)' : 'var(--red)';
+  const price = q.close ? parseFloat(q.close).toFixed(2) : '—';
+  const priceLabel = useIndexMode() ? 'QUOTE' : 'ETF PRICE';
+
+  tt.innerHTML = `
+    <div class="tt-name">${m.name}</div>
+    <div class="tt-status" style="color:${statusColor(s)};font-size:11px;font-family:var(--mono)">${statusLabel(s)}</div>
+    <div class="tt-grid">
+      <div class="tt-cell">
+        <div class="tt-cell-label">${priceLabel}</div>
+        <div class="tt-cell-val">$${price}</div>
+      </div>
+      <div class="tt-cell">
+        <div class="tt-cell-label">TODAY</div>
+        <div class="tt-cell-val" style="color:${pctCol}">${pctStr}</div>
+      </div>
+      <div class="tt-cell">
+        <div class="tt-cell-label">INDEX</div>
+        <div class="tt-cell-val" style="font-size:11px">${m.label}</div>
+      </div>
+      <div class="tt-cell">
+        <div class="tt-cell-label">MKT CAP</div>
+        <div class="tt-cell-val" style="font-size:11px">${m.cap}</div>
+      </div>
+    </div>
+    <div class="tt-hint">click to learn more about this exchange</div>
+  `;
+  tt.classList.add('show');
+  moveTooltip(e);
+}
+
+function moveTooltip(e) {
+  const wrap = document.getElementById('map-wrap');
+  const rect = wrap.getBoundingClientRect();
+  let x = e.clientX - rect.left + 16;
+  let y = e.clientY - rect.top + 16;
+  if (x + 250 > rect.width) x -= 260;
+  if (y + 200 > rect.height) y -= 200;
+  tt.style.left = x + 'px';
+  tt.style.top = y + 'px';
+}
+
+function hideTooltip() { tt.classList.remove('show'); }
+
+// ─────────────────────────────────────────
+// SIDEBAR — MARKETS LIST
+// ─────────────────────────────────────────
+function renderList() {
+  const panel = document.getElementById('markets-panel');
+  const loading = document.getElementById('list-loading');
+  if (loading) loading.remove();
+
+  // Remove old cards
+  panel.querySelectorAll('.mkt-row').forEach(n => n.remove());
+
+  MARKETS.forEach(m => {
+    const s = getStatus(m);
+    const q = quoteData[quoteSym(m)] || {};
+    const pct = parseFloat(q.percent_change || 0);
+    const pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+    const price = q.close ? '$' + parseFloat(q.close).toFixed(2) : '—';
+    const isUp = pct >= 0;
+
+    const div = document.createElement('div');
+    div.className = 'mkt-row';
+    div.innerHTML = `
+      <div class="mkt-row-top">
+        <div>
+          <div class="mkt-name">${m.name}</div>
+          <div class="mkt-city">${m.city}</div>
+        </div>
+        <div class="mkt-status-pill ${statusPillClass(s)}">${s}</div>
+      </div>
+      <div class="mkt-row-bot">
+        <span class="mkt-index">${m.label}</span>
+        <span class="mkt-val">${price}</span>
+        <span class="mkt-chg ${isUp ? 'up' : 'dn'}">${pctStr}</span>
+      </div>
+    `;
+    div.addEventListener('click', () => openLearnLink(m));
+    panel.appendChild(div);
+  });
+}
+
+function openLearnLink(m) {
+  window.open(`https://finance.yahoo.com/quote/${m.symbol}`, '_blank');
+}
+
+function getSelectedMarket() {
+  return MARKETS.find((m) => m.id === selectedMarketId) || null;
+}
+
+function handleMarketPinClick(marketId) {
+  selectedMarketId = marketId;
+  const mappedTab = MARKET_TO_TAB[marketId] || 'GLOBAL';
+  activeNewsTab = mappedTab;
+  renderPins();
+  renderNewsTabs();
+  renderNewsFilterChip();
+  if (activeTab !== 'news') switchTab('news');
+  else loadNews(true);
+}
+
+// ─────────────────────────────────────────
+// SIDEBAR — LEARN PANEL
+// ─────────────────────────────────────────
+const LEARN_CARDS = [
+  { label:'Basics', icon:'📈', q:'What is a stock market index and how does it work?' },
+  { label:'Global', icon:'🌍', q:'How do global stock markets influence each other?' },
+  { label:'Timing', icon:'🕐', q:'Why does it matter when stock markets open and close around the world?' },
+  { label:'Factors', icon:'⚡', q:'What are the main economic factors that move stock markets up or down?' },
+  { label:'Investing', icon:'💡', q:'How can I start investing in international stock markets as a beginner?' },
+  { label:'Currency', icon:'💱', q:'How do currency exchange rates affect international stock investments?' },
+  { label:'Sectors', icon:'🏭', q:'What sectors dominate different global stock markets and why?' },
+  { label:'Risk', icon:'🛡️', q:'What is diversification and how do global markets help reduce investment risk?' },
+];
+
+const PROVIDERS = [
+  { id: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-v1-... or or-...', hint: 'Free models available \u00B7 openrouter.ai/keys', keyUrl: 'https://openrouter.ai/keys' },
+  { id: 'gemini',     label: 'Gemini',     placeholder: 'AIza...',                  hint: 'Free tier \u00B7 aistudio.google.com',            keyUrl: 'https://aistudio.google.com/app/apikey' },
+  { id: 'groq',       label: 'Groq',       placeholder: 'gsk_...',                  hint: 'Free tier, very fast \u00B7 console.groq.com',   keyUrl: 'https://console.groq.com/keys' },
+];
+
+function sanitizeApiKey(raw) {
+  return String(raw || '').trim()
+    .replace(/[\r\n\t]/g, '')
+    .replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2026]/g, '').replace(/[^\x20-\x7E]/g, '');
+}
+
+function getLearnProvider() {
+  return localStorage.getItem('gm_provider') || 'openrouter';
+}
+
+function getLearnKey(provider) {
+  return sanitizeApiKey(localStorage.getItem(`gm_key_${provider || getLearnProvider()}`) || '');
+}
+
+function saveLearnKey() {
+  const provider = getLearnProvider();
+  const input = document.getElementById('learn-key-input');
+  const hint = document.getElementById('learn-key-hint');
+  if (!input) return;
+  const v = sanitizeApiKey(input.value);
+  input.value = v;
+  if (v) localStorage.setItem(`gm_key_${provider}`, v);
+  else localStorage.removeItem(`gm_key_${provider}`);
+  if (hint) hint.textContent = v ? 'Key saved.' : 'Key cleared.';
+}
+window.saveLearnKey = saveLearnKey;
+// legacy compat
+window.saveClaudeKey = saveLearnKey;
+window.saveOpenRouterKey = saveLearnKey;
+
+function switchLearnProvider(id) {
+  localStorage.setItem('gm_provider', id);
+  renderLearn();
+}
+window.switchLearnProvider = switchLearnProvider;
+
+async function fetchClaudeExplanation(question) {
+  const provider = getLearnProvider();
+  const k = getLearnKey(provider);
+  const headers = { 'Content-Type': 'application/json' };
+  if (k) headers['x-openrouter-api-key'] = k;
+  const res = await fetch(apiUrl('/api/claude'), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ question, apiKey: k || undefined, provider }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.message || j.error || `HTTP ${res.status}`);
+  return { text: j.text || '', modelUsed: j.modelUsed || '' };
+}
+
+async function verifyOpenRouterKey() {}
+
+function renderSimpleMarkdown(text) {
+  if (!text) return '';
+  const safe = escapeHtml(text);
+  const withBold = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  const lines = withBold.split('\n');
+  let inList = false;
+  const out = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (/^[-*]\s+/.test(line)) {
+      if (!inList) {
+        out.push('<ul>');
+        inList = true;
+      }
+      out.push(`<li>${line.replace(/^[-*]\s+/, '')}</li>`);
+    } else {
+      if (inList) {
+        out.push('</ul>');
+        inList = false;
+      }
+      if (!line) out.push('<br/>');
+      else out.push(`<p>${line}</p>`);
+    }
+  }
+  if (inList) out.push('</ul>');
+  return out.join('');
+}
+
+function renderLearnLoading() {
+  const body = document.getElementById('learn-explain-body');
+  if (!body) return;
+  body.classList.add('loading');
+  body.innerHTML = `
+    <div class="learn-skeleton">
+      <div class="learn-skeleton-line"></div>
+      <div class="learn-skeleton-line"></div>
+      <div class="learn-skeleton-line"></div>
+    </div>
+  `;
+}
+
+function renderLearnInlineKeyPrompt() {
+  const body = document.getElementById('learn-explain-body');
+  if (!body) return;
+  body.classList.remove('loading');
+  const provider = PROVIDERS.find(p => p.id === getLearnProvider()) || PROVIDERS[0];
+  body.innerHTML = `
+    <div class="learn-inline-key">
+      <p>Add your ${provider.label} key to use a better model. Keys are stored only in your browser. <a href="${provider.keyUrl}" target="_blank" rel="noopener" style="color:var(--blue)">${provider.hint}</a></p>
+      <div class="learn-claude-row">
+        <input type="password" id="learn-inline-key-input" placeholder="${provider.placeholder}" autocomplete="off" />
+        <button type="button" onclick="submitInlineLearnKey()">Save & Retry</button>
+      </div>
+    </div>
+  `;
+}
+
+function submitInlineLearnKey() {
+  const input = document.getElementById('learn-inline-key-input');
+  const v = sanitizeApiKey(input?.value);
+  if (!v || !pendingLearnQuestion) return;
+  input.value = v;
+  localStorage.setItem(`gm_key_${getLearnProvider()}`, v);
+  openLearnExplain(pendingLearnQuestion);
+}
+
+function closeLearnExplain() {
+  const root = document.getElementById('learn-explain-backdrop');
+  if (!root) return;
+  root.classList.remove('show');
+  root.setAttribute('aria-hidden', 'true');
+}
+
+function openLearnExplain(question) {
+  const root = document.getElementById('learn-explain-backdrop');
+  const qEl = document.getElementById('learn-explain-qtext');
+  const body = document.getElementById('learn-explain-body');
+  const errEl = document.getElementById('learn-explain-err');
+  if (!root || !qEl || !body || !errEl) return;
+
+  qEl.textContent = question;
+  errEl.textContent = '';
+  errEl.classList.remove('info');
+  pendingLearnQuestion = question;
+  renderLearnLoading();
+  root.classList.add('show');
+  root.setAttribute('aria-hidden', 'false');
+
+  fetchClaudeExplanation(question)
+    .then(({ text, modelUsed }) => {
+      body.classList.remove('loading');
+      body.innerHTML = renderSimpleMarkdown(text || '(Empty response.)');
+      if (modelUsed) {
+        errEl.classList.add('info');
+        errEl.textContent = `Model: ${modelUsed}`;
+      }
+    })
+    .catch((e) => {
+      if (String(e.message || e).toLowerCase().includes('missing_api_key')) {
+        errEl.textContent = '';
+        renderLearnInlineKeyPrompt();
+        return;
+      }
+      body.classList.remove('loading');
+      body.textContent = '';
+      errEl.textContent = String(e.message || e) + ' — Add your free OpenRouter key above.';
+    });
+}
+
+function renderLearn() {
+  const panel = document.getElementById('learn-panel');
+  panel.innerHTML = '';
+  const activeProvider = getLearnProvider();
+  const providerMeta = PROVIDERS.find(p => p.id === activeProvider) || PROVIDERS[0];
+  const existingKey = getLearnKey(activeProvider);
+
+  const setup = document.createElement('div');
+  setup.className = 'learn-claude-setup';
+  setup.innerHTML = `
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+      ${PROVIDERS.map(p => `
+        <button type="button" onclick="switchLearnProvider('${p.id}')"
+          style="font-family:var(--mono);font-size:10px;padding:5px 11px;border-radius:20px;cursor:pointer;border:1px solid;transition:all 0.2s;
+            ${p.id === activeProvider
+              ? 'background:rgba(167,139,250,0.18);border-color:rgba(167,139,250,0.5);color:var(--purple)'
+              : 'background:transparent;border-color:var(--border);color:var(--muted)'}">
+          ${p.label}
+        </button>`).join('')}
+    </div>
+    <p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:8px">
+      AI explanations are powered by <strong style="color:var(--text)">${providerMeta.label}</strong>.
+      Tap any topic below — it works for everyone by default.
+      Paste your own key for a smarter model.
+      <a href="${providerMeta.keyUrl}" target="_blank" rel="noopener" style="color:var(--blue)">${providerMeta.hint}</a>
+    </p>
+    <div class="learn-claude-row">
+      <input type="password" id="learn-key-input" placeholder="${existingKey ? '(key on file — re-enter to replace)' : providerMeta.placeholder}" autocomplete="off" />
+      <button type="button" onclick="saveLearnKey()">${existingKey ? 'Update' : 'Save'}</button>
+    </div>
+    <p id="learn-key-hint" style="font-size:10px;color:var(--faint);margin-top:6px;margin-bottom:0">
+      ${existingKey ? 'Your key is saved in this browser only.' : ''}
+    </p>
+  `;
+  panel.appendChild(setup);
+
+  const keyInput = setup.querySelector('#learn-key-input');
+  if (keyInput) keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveLearnKey(); });
+
+  LEARN_CARDS.forEach((card) => {
+    const div = document.createElement('div');
+    div.className = 'learn-card';
+    div.innerHTML = `
+      <div class="learn-card-icon">${card.icon}</div>
+      <div class="learn-card-label">${card.label}</div>
+      <div class="learn-card-q">${card.q}</div>
+    `;
+    div.addEventListener('click', () => openLearnExplain(card.q));
+    panel.appendChild(div);
+  });
+}
+
+// ─────────────────────────────────────────
+// NEWS (via local serve.mjs → NewsAPI)
+// ─────────────────────────────────────────
+/** When the page is opened as file://, fetch('/api/...') fails; use the dev server origin. */
+const DEFAULT_DEV_API_BASE = 'http://127.0.0.1:3847';
+
+function devApiBase() {
+  try {
+    const o = localStorage.getItem('gm_dev_api_base');
+    if (o) return o.replace(/\/$/, '');
+  } catch (_) {}
+  if (window.location.protocol === 'file:') return DEFAULT_DEV_API_BASE;
+  return '';
+}
+
+function apiUrl(path) {
+  const base = devApiBase();
+  return base ? base + path : path;
+}
+
+function renderNewsTabs() {
+  const strip = document.getElementById('news-tab-strip');
+  if (!strip) return;
+  strip.innerHTML = '';
+  Object.keys(NEWS_TAB_CONFIG).forEach((name) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'news-tab-btn' + (activeNewsTab === name ? ' active' : '');
+    btn.textContent = name;
+    btn.addEventListener('click', () => {
+      activeNewsTab = name;
+      selectedMarketId = null;
+      renderPins();
+      renderNewsTabs();
+      renderNewsFilterChip();
+      loadNews(true);
+    });
+    strip.appendChild(btn);
+  });
+}
+
+function renderNewsFilterChip() {
+  const wrap = document.getElementById('news-filter-wrap');
+  if (!wrap) return;
+  const market = getSelectedMarket();
+  if (!market) {
+    wrap.innerHTML = '';
+    return;
+  }
+  wrap.innerHTML = `
+    <div class="news-filter-chip">
+      <span>Filtered by: ${escapeHtml(market.city)}</span>
+      <button type="button" onclick="clearNewsMarketFilter()" aria-label="Clear filter">×</button>
+    </div>
+  `;
+}
+
+function clearNewsMarketFilter() {
+  selectedMarketId = null;
+  renderPins();
+  renderNewsFilterChip();
+  loadNews(true);
+}
+
+function buildNewsQueryUrl() {
+  const market = getSelectedMarket();
+  const params = new URLSearchParams();
+  if (market) {
+    params.set('mode', 'market');
+    params.set('market', market.city.toLowerCase());
+    params.set('q', `${market.city} ${market.label} stock market`);
+  } else {
+    const cfg = NEWS_TAB_CONFIG[activeNewsTab] || NEWS_TAB_CONFIG.GLOBAL;
+    params.set('mode', cfg.mode);
+    if (cfg.country) params.set('country', cfg.country);
+    if (cfg.q) params.set('q', cfg.q);
+  }
+  return apiUrl('/api/news') + '?' + params.toString();
+}
+
+function formatNewsTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = Date.now();
+  const diff = Math.floor((now - d.getTime()) / 60000);
+  if (diff < 1) return 'just now';
+  if (diff < 60) return diff + ' min ago';
+  if (diff < 1440) return Math.floor(diff / 60) + ' hr ago';
+  if (diff < 2880) return 'yesterday';
+  return Math.floor(diff / 1440) + ' days ago';
+}
+
+function classifyNewsCategory(headline = '') {
+  const h = headline.toLowerCase();
+  if (/(bitcoin|ethereum|crypto|token|blockchain)/.test(h)) return 'CRYPTO';
+  if (/(forex|currency|dollar|yen|euro|rupee|fx)/.test(h)) return 'CURRENCY';
+  if (/(earnings|revenue|profit|guidance|quarter|q[1-4])/i.test(headline)) return 'EARNINGS';
+  if (/(inflation|rates|fed|ecb|jobs|gdp|macro|cpi|pmi|central bank)/.test(h)) return 'MACRO';
+  if (/(oil|gold|commodity|metals|crude|natural gas)/.test(h)) return 'COMMODITIES';
+  return 'MARKETS';
+}
+
+function newsSentimentClass() {
+  const market = getSelectedMarket();
+  if (!market) return 'neutral';
+  const q = quoteData[quoteSym(market)] || {};
+  const s = getStatus(market);
+  const pct = parseFloat(q.percent_change || '0');
+  if (s !== 'open' && s !== 'pre') return 'neutral';
+  if (pct > 0) return 'up';
+  if (pct < 0) return 'dn';
+  return 'neutral';
+}
+
+function sourceInitials(name = 'NEWS') {
+  return name
+    .split(' ')
+    .slice(0, 2)
+    .map((p) => p[0] || '')
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function updateLiveBadge() {
+  const dot = document.getElementById('news-live-dot');
+  const label = document.getElementById('news-live-label');
+  const source = document.getElementById('news-source-label');
+  const market = getSelectedMarket();
+  if (source) source.textContent = market ? `${market.city.toUpperCase()} FEED` : `${activeNewsTab} FEED`;
+  const isLive = Date.now() - lastNewsFetchAt < 5 * 60 * 1000;
+  if (!dot || !label) return;
+  dot.classList.toggle('off', !isLive);
+  label.textContent = isLive ? 'LIVE' : 'stale';
+}
+
+function renderNewsCards(articles) {
+  const sentiment = newsSentimentClass();
+  return articles.map((a, idx) => {
+    const href = a.url && !a.url.includes('example.com') ? a.url : '#';
+    const source = escapeHtml((a.source && a.source.name) || 'News');
+    const title = escapeHtml(a.title || 'Untitled');
+    const snippetRaw = (a.description || '').replace(/\s+/g, ' ').trim();
+    const snippet = escapeHtml(snippetRaw.length > 180 ? snippetRaw.slice(0, 177) + '…' : snippetRaw);
+    const cat = classifyNewsCategory(a.title || '');
+    const time = formatNewsTime(a.publishedAt);
+    const linkAttrs = href === '#'
+      ? ''
+      : ` href="${href}" target="_blank" rel="noopener noreferrer"`;
+    if (idx === 0) {
+      return `<a class="news-card hero ${sentiment}"${linkAttrs}>
+        <div class="news-cat-pill">${cat}</div>
+        <div style="display:flex;gap:10px;align-items:flex-start;justify-content:space-between">
+          <div class="news-card-title">${title}</div>
+          <span class="news-source-badge">${sourceInitials(source)}</span>
+        </div>
+        ${snippet ? `<div class="news-card-snip">${snippet}</div>` : ''}
+        <div class="news-card-meta"><span>${source}</span><span>${time}</span></div>
+      </a>`;
+    }
+    if (idx < 4) {
+      return `<a class="news-card standard"${linkAttrs}>
+        <div class="news-cat-pill">${cat}</div>
+        <div class="news-card-title">${title}</div>
+        <div class="news-card-meta"><span>${source}</span><span>${time}</span></div>
+      </a>`;
+    }
+    return `<a class="news-card compact"${linkAttrs}>
+      <div class="news-card-title">${title}</div>
+    </a>`;
+  }).join('');
+}
+
+async function loadNews(withTransition = false) {
+  const list = document.getElementById('news-list');
+  const banner = document.getElementById('news-banner-wrap');
+  if (withTransition) {
+    list.classList.add('updating');
+    await new Promise((r) => setTimeout(r, 130));
+  }
+  list.innerHTML = '<div class="loading-text">loading headlines…</div>';
+  banner.innerHTML = '';
+  const reqId = ++latestNewsRequestId;
+
+  let data;
+  try {
+    const res = await fetch(buildNewsQueryUrl());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    data = await res.json();
+  } catch (e) {
+    const isLocal = window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
+    list.innerHTML = `
+      <div class="news-empty">
+        ${isLocal
+          ? 'Could not reach the news proxy. Run <span style="font-family:var(--mono);color:var(--text)">npm start</span> and reload.'
+          : 'Could not load news headlines. Please try again shortly.'}
+      </div>`;
+    list.classList.remove('updating');
+    return;
+  }
+  if (reqId !== latestNewsRequestId) return;
+
+  if (data.demo) {
+    const extra = data.newsApiError
+      ? ` NewsAPI said: ${data.newsApiError}.`
+      : '';
+    banner.innerHTML = `
+      <div class="news-banner">
+        Showing sample headlines.${extra}
+        For live NewsAPI data, run the server with
+        <code style="font-family:var(--mono)">NEWS_API_KEY=your_key</code>
+        (free key at <a href="https://newsapi.org/register" target="_blank" rel="noopener">newsapi.org</a>).
+      </div>`;
+  }
+
+  const articles = data.articles || [];
+  if (!articles.length) {
+    list.innerHTML = '<div class="news-empty">No articles returned for this filter.</div>';
+    list.classList.remove('updating');
+    return;
+  }
+
+  list.innerHTML = renderNewsCards(articles);
+  lastNewsFetchAt = Date.now();
+  updateLiveBadge();
+  list.classList.remove('updating');
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ─────────────────────────────────────────
+// TABS
+// ─────────────────────────────────────────
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab[onclick*="${tab}"]`).classList.add('active');
+  document.getElementById(`${tab}-panel`).classList.add('active');
+  if (tab === 'news') loadNews(true);
+}
+
+// ─────────────────────────────────────────
+// CLOCK
+// ─────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const localAbbr = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    timeZoneName: 'short',
+  })
+    .formatToParts(now)
+    .find((p) => p.type === 'timeZoneName')?.value || tz.split('/').pop();
+
+  const localTime = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now);
+
+  const utcTime = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'UTC',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now);
+
+  document.getElementById('utc-clock').textContent = `[LOCAL ${localTime} ${localAbbr}] [UTC ${utcTime}]`;
+}
+
+// ─────────────────────────────────────────
+// DATA FETCHING
+// ─────────────────────────────────────────
+async function fetchQuotes() {
+  const symbols = MARKETS.map((m) => quoteSym(m));
+  setApiStatus('loading');
+  try {
+    const url = apiUrl('/api/quotes') + '?symbols=' + encodeURIComponent(symbols.join(','));
+    const res = await fetch(url);
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok || payload.status !== 'ok') {
+      setApiStatus('error');
+      quoteData = DEMO;
+      return;
+    }
+    symbols.forEach((sym) => {
+      if (payload.quotes?.[sym]?.close) quoteData[sym] = payload.quotes[sym];
+    });
+    setApiStatus('live');
+  } catch (_) {
+    setApiStatus('error');
+    quoteData = DEMO;
+  }
+}
+
+function setApiStatus(state) {
+  const dot = document.getElementById('api-status');
+  const label = document.getElementById('api-status-label');
+  dot.className = '';
+  if (state === 'live') { dot.classList.add('live'); label.textContent = 'live'; }
+  else if (state === 'demo') { label.textContent = 'demo mode'; }
+  else if (state === 'error') { dot.classList.add('error'); label.textContent = 'api error'; }
+  else { label.textContent = 'loading...'; }
+}
+
+// ─────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────
+async function init() {
+  renderLearn();
+  renderNewsTabs();
+  renderNewsFilterChip();
+  updateLiveBadge();
+  await fetchQuotes();
+  renderPins();
+  renderList();
+
+  // Refresh every 60 seconds
+  setInterval(async () => {
+    await fetchQuotes();
+    renderPins();
+    renderList();
+  }, 60_000);
+
+  // Refresh status dots every 30s (market open/close transitions)
+  setInterval(() => {
+    renderPins();
+    renderList();
+    updateLiveBadge();
+  }, 30_000);
+
+  // News auto-refresh (animate updates when user is on News tab)
+  setInterval(() => {
+    if (activeTab === 'news') loadNews(true);
+  }, 180_000);
+}
+
+// Clock ticks every second
+setInterval(updateClock, 1000);
+updateClock();
+
+// On load — check for saved API key
+window.addEventListener('load', () => {
+  const idxCb = document.getElementById('use-index-symbols');
+  if (idxCb) {
+    idxCb.checked = useIndexMode();
+    idxCb.addEventListener('change', async () => {
+      localStorage.setItem('gm_use_index_symbols', idxCb.checked ? '1' : '0');
+      await fetchQuotes();
+      renderPins();
+      renderList();
+    });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeLearnExplain();
+  });
+
+  const mapWrap = document.getElementById('map-wrap');
+  if (mapWrap) {
+    mapWrap.addEventListener('mouseleave', () => {
+      clearClusterHoverLabels();
+      hideTooltip();
+    });
+  }
+
+  init();
+});
+</script>
+</body>
+</html>
