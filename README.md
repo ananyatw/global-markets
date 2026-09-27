@@ -2,7 +2,7 @@
 
 A real-time global stock markets dashboard. Interactive world map with live prices, market news, and AI-powered finance explanations.
 
-**[Live Demo →](https://global-markets.vercel.app)** <!-- update this link after deploying -->
+**[Live Demo →](https://global-markets-mocha.vercel.app)**
 
 ![Global Markets screenshot](https://raw.githubusercontent.com/ananyatw/global-markets/dev/screenshot.png)
 
